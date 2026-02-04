@@ -4,17 +4,18 @@
 
 1. [Current State](#1-current-state)
 2. [Goal](#2-goal)
-3. [Approach Comparison: 3 Options](#3-approach-comparison)
-4. [Recommended Architecture (Hybrid Pipeline)](#4-recommended-architecture)
-5. [File-Type Handling Strategy](#5-file-type-handling-strategy)
-6. [Gemini API — Pricing & Cost Breakdown](#6-gemini-api--pricing--cost-breakdown)
-7. [Cost Estimation Scenarios](#7-cost-estimation-scenarios)
-8. [Python Libraries Required](#8-python-libraries-required)
-9. [Implementation Plan (Step-by-Step)](#9-implementation-plan)
-10. [API Design](#10-api-design)
-11. [Frontend Changes](#11-frontend-changes)
-12. [Risk & Considerations](#12-risks--considerations)
-13. [Sources](#13-sources)
+3. [OCR Engine Comparison](#3-ocr-engine-comparison)
+4. [Approach Comparison: 3 Options](#4-approach-comparison-3-options)
+5. [Recommended Architecture (Multi-OCR Hybrid)](#5-recommended-architecture-multi-ocr-hybrid)
+6. [File-Type Handling Strategy](#6-file-type-handling-strategy)
+7. [Gemini API — Pricing & Cost Breakdown](#7-gemini-api--pricing--cost-breakdown)
+8. [Cost Estimation Scenarios](#8-cost-estimation-scenarios)
+9. [Python Libraries Required](#9-python-libraries-required)
+10. [Implementation Plan (Step-by-Step)](#10-implementation-plan-step-by-step)
+11. [API Design](#11-api-design)
+12. [Frontend Changes](#12-frontend-changes)
+13. [Risk & Considerations](#13-risks--considerations)
+14. [Sources](#14-sources)
 
 ---
 
@@ -33,109 +34,315 @@
 
 Accept **any file type** uploaded by the user — `.pdf`, `.docx`, `.xlsx`, `.csv`, `.txt`, `.md`, `.tex`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.tiff`, `.webp`, etc. — extract content in a **properly structured format**, and feed it into the chat context so Gemini can reason over it.
 
----
-
-## 3. Approach Comparison
-
-### Option A: Gemini-Only (Send files directly to Gemini API)
-
-| Pros | Cons |
-|------|------|
-| Simplest implementation — just upload file to Gemini | Costs money per request (token-based) |
-| Gemini natively handles PDF (up to 1000 pages), images | Cannot process `.docx`, `.xlsx`, `.csv` natively |
-| Understands layout, tables, charts, diagrams | 50MB file size limit for inline; must use Files API for larger |
-| Structured output via `response_schema` (Pydantic) | Rate limits on free tier (1,500 RPD for Flash) |
-| Zero infrastructure — no Tesseract, no system deps | You pay for every extraction, even re-uploads |
-
-**Verdict:** Great for PDFs and images. Cannot handle Office formats natively. Need a parser layer for `.docx`/`.xlsx`.
-
-### Option B: Full Local OCR Pipeline (Tesseract + Parsers)
-
-| Pros | Cons |
-|------|------|
-| Free — no API costs | Tesseract OCR is ~1000x slower than native text extraction |
-| Full control, works offline | Complex setup (Tesseract system dependency, language packs) |
-| Handles all file types with right parsers | Poor on complex layouts, tables, handwritten text |
-| python-docx, openpyxl, PyMuPDF are fast & reliable | No semantic understanding — just raw text |
-
-**Verdict:** Good for digital documents. Struggles with scanned/image-heavy content. No intelligence in extraction.
-
-### Option C: Hybrid Pipeline (Recommended)
-
-| Pros | Cons |
-|------|------|
-| Best accuracy across ALL file types | Slightly more complex to build |
-| Free extraction for digital files (docx, xlsx, csv, txt) | Still costs for scanned PDFs / images via Gemini |
-| Gemini only called when OCR is actually needed | Need to detect if PDF is scanned vs native |
-| Structured output from Gemini for complex documents | — |
-| Fastest possible — parsers for digital, API for visual | — |
-
-**Verdict: THIS IS THE RECOMMENDED APPROACH.** Use free local parsers for digital documents, Gemini Vision for scanned/image content.
+**Target Document Types:**
+- Bills & Invoices
+- PDFs (native & scanned)
+- DOC/DOCX documents
+- CSV files
+- XLS/XLSX spreadsheets
+- Tabular data with numbers
+- Graphs & charts
 
 ---
 
-## 4. Recommended Architecture (Hybrid Pipeline)
+## 3. OCR Engine Comparison
 
-```
-User uploads file
-       │
-       ▼
-┌─────────────────────┐
-│  File Type Router    │
-│  (by MIME / ext)     │
-└─────┬───────────────┘
-      │
-      ├── .txt / .md / .csv / .tex ──► Direct text read (free, instant)
-      │
-      ├── .docx ──────────────────────► python-docx parser (free, instant)
-      │
-      ├── .xlsx / .xls ──────────────► openpyxl / pandas (free, instant)
-      │
-      ├── .pdf ──────────────────────► PyMuPDF text extraction
-      │                                  │
-      │                          Has text layer?
-      │                           ├── YES ► Use extracted text (free)
-      │                           └── NO ──► Gemini Vision API (paid)
-      │
-      ├── .png/.jpg/.jpeg/.gif/.bmp/.tiff/.webp
-      │                          ──────────► Gemini Vision API (paid)
-      │
-      └── Unknown ───────────────────► Try text read, fallback to Gemini
-              │
-              ▼
-┌─────────────────────┐
-│  Structured Output   │
-│  (Markdown / JSON)   │
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│  Inject into Chat    │
-│  Context for Gemini  │
-└─────────────────────┘
+### Local/Free OCR Options
+
+| OCR Engine | Tables | Numbers | Speed | Setup | Best For |
+|------------|--------|---------|-------|-------|----------|
+| **Surya OCR** | ✅ Excellent | ✅ Excellent | Fast | Easy | Documents, 90+ languages, layout detection |
+| **PaddleOCR** | ✅ Good | ✅ Good | Fast | Medium | Tables, multilingual, structured docs |
+| **EasyOCR** | ⚠️ Medium | ✅ Good | Slow | Easy | General purpose, 80+ languages |
+| **DocTR** | ✅ Good | ✅ Good | Medium | Easy | Documents, invoices |
+| **TrOCR** | ⚠️ Medium | ✅ Good | Slow | Hard | Handwritten + printed text |
+| **Tesseract** | ❌ Poor | ⚠️ Risky | Medium | Easy | Simple typed documents only |
+
+### Detailed Engine Analysis
+
+#### Surya OCR ⭐⭐ (Best Overall)
+```bash
+pip install surya-ocr
 ```
 
+| Pros | Cons |
+|------|------|
+| State-of-the-art accuracy (2024) | Newer, less community support |
+| Excellent layout detection | Requires GPU for best speed |
+| Table structure preservation | ~500MB model size |
+| 90+ languages support | |
+| Built specifically for documents | |
+| Free & open source (GPL) | |
+
+**Best for:** Complex documents, invoices, forms, mixed layouts
+
+#### PaddleOCR ⭐ (Best for Tables)
+```bash
+pip install paddlepaddle paddleocr
+```
+
+| Pros | Cons |
+|------|------|
+| Excellent table recognition (PP-Structure) | Larger model size (~150MB) |
+| Very accurate on numbers | PaddlePaddle framework dependency |
+| Fast inference | Documentation mostly in Chinese |
+| Layout analysis built-in | |
+| Free & open source | |
+
+**Best for:** Invoices, bills, structured documents with tables
+
+#### Tesseract ❌ (Not Recommended)
+```bash
+apt-get install tesseract-ocr
+pip install pytesseract
+```
+
+| Pros | Cons |
+|------|------|
+| Free, widely available | Poor table recognition |
+| Works offline | Number misreads (0↔O, 1↔l) |
+| Many language packs | Slow processing |
+| | Complex setup |
+
+**Best for:** Simple typed documents only (not recommended for ERP use case)
+
+### Paid API Options (Reference)
+
+| Service | Tables | Accuracy | Cost |
+|---------|--------|----------|------|
+| **Gemini Vision** | ✅ Excellent | Excellent | ~$0.10/1000 pages |
+| **AWS Textract** | ✅ Excellent | Excellent | $1.50/1000 pages |
+| **Google Document AI** | ✅ Excellent | Excellent | $1.50/1000 pages |
+| **Azure Document Intelligence** | ✅ Excellent | Excellent | $1.50/1000 pages |
+
 ---
 
-## 5. File-Type Handling Strategy
+## 4. Approach Comparison: 3 Options
 
-| File Type | Method | Library / API | Cost | Speed |
+### Option A: Fully Local (Zero API Cost)
+
+| Pros | Cons |
+|------|------|
+| Zero cost — completely free | Cannot interpret graphs/charts |
+| Full privacy — files never leave server | Slightly lower accuracy on complex layouts |
+| Works offline | Larger Docker image (~800MB) |
+| No rate limits | |
+
+**Verdict:** Good for privacy-first deployments, but cannot understand graphs.
+
+### Option B: Hybrid (Surya + Gemini)
+
+| Pros | Cons |
+|------|------|
+| Free for 90% of files | Small cost for graphs (~$0.50-2/month) |
+| Gemini understands graphs/charts | Requires internet for some files |
+| Best balance of cost/accuracy | |
+| Partial offline capability | |
+
+**Verdict:** Good balance for most use cases.
+
+### Option C: Multi-OCR Hybrid (Recommended) ⭐
+
+| Pros | Cons |
+|------|------|
+| Maximum accuracy | More complex setup |
+| Surya for layouts, Paddle for tables | Larger Docker image (~1.5GB) |
+| Gemini for graphs (only option) | Small API cost (~$1-2/month) |
+| Confidence-based fallback | |
+
+**Verdict: THIS IS THE RECOMMENDED APPROACH.** Best accuracy for ERP documents with bills, invoices, tables, and graphs.
+
+---
+
+## 5. Recommended Architecture (Multi-OCR Hybrid)
+
+### High-Level Flow
+
+```mermaid
+flowchart TD
+    A[User Uploads File] --> B{File Type Router}
+
+    B -->|.txt .md .csv .tex| C[Direct Text Read]
+    B -->|.docx| D[python-docx Parser]
+    B -->|.xlsx .xls| E[openpyxl + pandas]
+    B -->|.pdf| F{PyMuPDF Check}
+    B -->|Images| G{Image Classifier}
+
+    F -->|Has Text Layer| H[Extract Text - FREE]
+    F -->|Scanned/No Text| I{Document Type}
+
+    I -->|Tables/Invoices| J[PaddleOCR PP-Structure]
+    I -->|General Document| K[Surya OCR]
+
+    G -->|Document/Text| K
+    G -->|Tables/Forms| J
+    G -->|Graph/Chart| L[Gemini Vision API]
+
+    C --> M[Structured Output]
+    D --> M
+    E --> M
+    H --> M
+    J --> M
+    K --> M
+    L --> M
+
+    M --> N{Confidence Check}
+    N -->|>80%| O[Inject to Chat Context]
+    N -->|<80% Critical Doc| P[Gemini Verification]
+    P --> O
+
+    style C fill:#90EE90
+    style D fill:#90EE90
+    style E fill:#90EE90
+    style H fill:#90EE90
+    style J fill:#87CEEB
+    style K fill:#87CEEB
+    style L fill:#FFB6C1
+    style P fill:#FFB6C1
+```
+
+**Legend:**
+- 🟢 Green = Free (local parsers)
+- 🔵 Blue = Free (local OCR)
+- 🔴 Pink = Paid (Gemini API)
+
+### OCR Selection Logic
+
+```mermaid
+flowchart TD
+    A[Scanned Document or Image] --> B{Analyze Content Type}
+
+    B -->|Has Tables| C{Table Complexity}
+    B -->|Text Only| D[Surya OCR]
+    B -->|Graph/Chart| E[Gemini Vision]
+    B -->|Form with Checkboxes| F[PaddleOCR]
+
+    C -->|Simple Table| D
+    C -->|Complex Multi-Column| F[PaddleOCR PP-Structure]
+
+    D --> G{Confidence Score}
+    F --> G
+
+    G -->|≥80%| H[Use Result]
+    G -->|<80%| I{Is Critical Document?}
+
+    I -->|Yes - Invoice/Bill| J[Verify with Gemini]
+    I -->|No| H
+
+    J --> H
+
+    style D fill:#87CEEB
+    style F fill:#87CEEB
+    style E fill:#FFB6C1
+    style J fill:#FFB6C1
+```
+
+### When to Use Which OCR
+
+| Document Type | Primary OCR | Reason |
+|--------------|-------------|--------|
+| General documents | Surya | Best layout detection |
+| Invoices/Bills with tables | PaddleOCR PP-Structure | Best table extraction |
+| Forms with checkboxes | PaddleOCR | Good form detection |
+| Mixed layout (text + tables) | Surya + PaddleOCR merge | Combine strengths |
+| Graphs/Charts | Gemini Vision | Only option that "understands" visuals |
+| Handwritten notes | Surya | Better than Paddle on handwriting |
+| Low quality scans | Gemini Vision | Most robust |
+
+---
+
+## 6. File-Type Handling Strategy
+
+### Processing Flow by File Type
+
+```mermaid
+flowchart LR
+    subgraph Free["FREE - Local Processing"]
+        TXT[".txt .md .csv .tex"]
+        DOCX[".docx"]
+        XLSX[".xlsx .xls"]
+        PDF_NATIVE["PDF with text"]
+    end
+
+    subgraph LocalOCR["FREE - Local OCR"]
+        SCANNED["Scanned PDFs"]
+        DOC_IMG["Document Images"]
+    end
+
+    subgraph Paid["PAID - Gemini API"]
+        GRAPHS["Graphs & Charts"]
+        COMPLEX["Complex/Low Quality"]
+        FALLBACK["Low Confidence Fallback"]
+    end
+
+    TXT --> PYTHON["Python Built-in"]
+    DOCX --> PYDOCX["python-docx"]
+    XLSX --> OPENPYXL["openpyxl/pandas"]
+    PDF_NATIVE --> PYMUPDF["PyMuPDF"]
+
+    SCANNED --> SURYA["Surya OCR"]
+    SCANNED --> PADDLE["PaddleOCR"]
+    DOC_IMG --> SURYA
+    DOC_IMG --> PADDLE
+
+    GRAPHS --> GEMINI["Gemini Vision"]
+    COMPLEX --> GEMINI
+    FALLBACK --> GEMINI
+
+    style Free fill:#90EE90
+    style LocalOCR fill:#87CEEB
+    style Paid fill:#FFB6C1
+```
+
+### Detailed File Type Matrix
+
+| File Type | Method | Library / OCR | Cost | Speed |
 |-----------|--------|---------------|------|-------|
 | `.txt`, `.md`, `.csv` | Direct read | Python built-in / `csv` | Free | Instant |
-| `.tex` | Direct read (plain text) | Python built-in | Free | Instant |
-| `.docx` | Parse document structure | `python-docx` | Free | ~50ms |
+| `.tex` | Direct read | Python built-in | Free | Instant |
+| `.docx` | Parse structure | `python-docx` | Free | ~50ms |
 | `.xlsx`, `.xls` | Parse spreadsheet | `openpyxl` / `pandas` | Free | ~100ms |
-| `.pdf` (native/digital) | Extract embedded text | `PyMuPDF` (fitz) | Free | ~120ms |
-| `.pdf` (scanned/image) | Vision OCR | Gemini API | ~$0.001-0.01/page | ~2-5s/page |
-| `.png`, `.jpg`, `.jpeg` | Vision OCR | Gemini API | ~$0.0001/image | ~1-3s |
-| `.gif`, `.bmp`, `.tiff`, `.webp` | Convert → Vision OCR | Pillow + Gemini API | ~$0.0001/image | ~1-3s |
+| `.pdf` (native) | Extract text | `PyMuPDF` (fitz) | Free | ~120ms |
+| `.pdf` (scanned - tables) | OCR | PaddleOCR PP-Structure | Free | ~2-4s/page |
+| `.pdf` (scanned - general) | OCR | Surya OCR | Free | ~1-3s/page |
+| `.png`, `.jpg` (document) | OCR | Surya OCR | Free | ~1-2s |
+| `.png`, `.jpg` (tables) | OCR | PaddleOCR | Free | ~1-2s |
+| `.png`, `.jpg` (graphs) | Vision AI | Gemini API | ~$0.0001 | ~1-3s |
+| `.gif`, `.bmp`, `.tiff`, `.webp` | Convert → OCR | Pillow + Surya/Paddle | Free | ~1-3s |
 
-### How to Detect if a PDF is Scanned vs Native
+### PDF Processing Logic
+
+```mermaid
+flowchart TD
+    A[PDF File Uploaded] --> B[PyMuPDF Open]
+    B --> C{Extract Text}
+
+    C -->|Text Found > 50 chars/page| D[Use Extracted Text]
+    C -->|No Text / < 50 chars| E[Scanned PDF Detected]
+
+    E --> F{Analyze Page Content}
+    F -->|Tables Detected| G[PaddleOCR PP-Structure]
+    F -->|Text Only| H[Surya OCR]
+    F -->|Mixed| I[Both OCRs → Merge]
+
+    D --> J[Return Structured Content]
+    G --> J
+    H --> J
+    I --> J
+
+    style D fill:#90EE90
+    style G fill:#87CEEB
+    style H fill:#87CEEB
+    style I fill:#87CEEB
+```
+
+### Code: Detect Scanned vs Native PDF
 
 ```python
 import fitz  # PyMuPDF
 
 def is_scanned_pdf(file_path: str) -> bool:
+    """Check if PDF is scanned (image-based) or has native text."""
     doc = fitz.open(file_path)
     for page in doc:
         text = page.get_text().strip()
@@ -146,152 +353,254 @@ def is_scanned_pdf(file_path: str) -> bool:
 
 ---
 
-## 6. Gemini API — Pricing & Cost Breakdown
+## 7. Gemini API — Pricing & Cost Breakdown
 
-### Models Relevant to OCR (January 2026)
+### Models Relevant to OCR (2026)
 
 | Model | Input (per 1M tokens) | Output (per 1M tokens) | Best For |
 |-------|----------------------|------------------------|----------|
 | **Gemini 2.0 Flash** | $0.10 | $0.40 | Budget OCR, high volume |
 | **Gemini 2.5 Flash-Lite** | $0.10 | $0.40 | Cheapest option |
-| **Gemini 2.5 Flash** | $0.30 | $2.50 | Good balance of quality/cost |
-| **Gemini 3 Flash Preview** | $0.50 | $3.00 | Best Flash-tier quality |
-| **Gemini 2.5 Pro** | $1.25 | $10.00 | Complex document understanding |
-| **Gemini 3 Pro Preview** | $2.00 | $12.00 | Best-in-class document AI |
+| **Gemini 2.5 Flash** | $0.30 | $2.50 | Good balance |
+| **Gemini 3 Flash Preview** | $0.50 | $3.00 | Best Flash-tier |
+| **Gemini 2.5 Pro** | $1.25 | $10.00 | Complex documents |
+| **Gemini 3 Pro Preview** | $2.00 | $12.00 | Best-in-class |
 
 ### Key Pricing Facts
 
-- **Images:** Each image ≈ 258 tokens input regardless of size (~$0.000026 per image on Gemini 2.0 Flash)
-- **PDF pages:** Native text in PDFs is extracted for free (not charged as tokens) since Gemini 3
-- **Batch API:** 50% discount on all models (process files async, results within 24h)
-- **Free Tier:** Up to 1,500 requests/day on Gemini 2.0 Flash (generous for dev/small scale)
-- **Context Caching:** Re-use uploaded files without re-paying input tokens
+- **Images:** ~258 tokens input regardless of size (~$0.000026/image on Gemini 2.0 Flash)
+- **PDF pages:** Native text extracted for free since Gemini 3
+- **Batch API:** 50% discount (async, results within 24h)
+- **Free Tier:** 1,500 requests/day on Gemini 2.0 Flash
+- **Context Caching:** Re-use uploaded files without re-paying tokens
 
 ### Token Estimation per File Type
 
 | Document Type | Approx. Tokens (Input) | Cost (Gemini 2.0 Flash) |
 |--------------|----------------------|------------------------|
-| 1-page image OCR | ~258 tokens + prompt (~100) | ~$0.000036 |
+| 1-page image OCR | ~258 + prompt (~100) | ~$0.000036 |
 | 10-page scanned PDF | ~2,580 + prompt (~200) | ~$0.00028 |
 | 50-page scanned PDF | ~12,900 + prompt (~200) | ~$0.0013 |
 | Complex invoice image | ~258 + prompt (~300) | ~$0.000056 |
 
-These costs are **extremely low**. Even at 1,000 documents/day, you'd spend ~$0.04-$1.30/day depending on complexity.
-
 ---
 
-## 7. Cost Estimation Scenarios
+## 8. Cost Estimation Scenarios
+
+### With Multi-OCR Hybrid Approach
+
+```mermaid
+pie title Cost Distribution (500 uploads/day)
+    "Local Parsers (Free)" : 60
+    "Local OCR - Surya/Paddle (Free)" : 30
+    "Gemini API (Paid)" : 10
+```
 
 ### Scenario A: Small Business (50 uploads/day)
 
-| Item | Volume | Model | Monthly Cost |
-|------|--------|-------|-------------|
-| DOCX/XLSX/CSV/TXT files | 30/day | Local parsers | **$0.00** |
-| Image OCR (invoices, receipts) | 15/day | Gemini 2.0 Flash | **~$0.02/month** |
-| Scanned PDF (5 pages avg) | 5/day | Gemini 2.0 Flash | **~$0.02/month** |
-| **TOTAL** | | | **~$0.04/month** |
+| Item | Volume | Method | Monthly Cost |
+|------|--------|--------|-------------|
+| DOCX/XLSX/CSV/TXT | 25/day | Local parsers | **$0.00** |
+| Native PDFs | 10/day | PyMuPDF | **$0.00** |
+| Scanned docs (tables) | 10/day | PaddleOCR | **$0.00** |
+| Graphs/Charts | 5/day | Gemini 2.0 Flash | **~$0.01/month** |
+| **TOTAL** | | | **~$0.01/month** |
 
 ### Scenario B: Medium Business (500 uploads/day)
 
-| Item | Volume | Model | Monthly Cost |
-|------|--------|-------|-------------|
-| DOCX/XLSX/CSV/TXT files | 300/day | Local parsers | **$0.00** |
-| Image OCR | 150/day | Gemini 2.5 Flash | **~$0.50/month** |
-| Scanned PDF (10 pages avg) | 50/day | Gemini 2.5 Flash | **~$1.50/month** |
-| **TOTAL** | | | **~$2.00/month** |
+| Item | Volume | Method | Monthly Cost |
+|------|--------|--------|-------------|
+| DOCX/XLSX/CSV/TXT | 250/day | Local parsers | **$0.00** |
+| Native PDFs | 100/day | PyMuPDF | **$0.00** |
+| Scanned docs | 100/day | Surya + PaddleOCR | **$0.00** |
+| Graphs/Charts | 50/day | Gemini 2.5 Flash | **~$0.50/month** |
+| **TOTAL** | | | **~$0.50/month** |
 
 ### Scenario C: Heavy Usage (2,000 uploads/day)
 
-| Item | Volume | Model | Monthly Cost |
-|------|--------|-------|-------------|
-| DOCX/XLSX/CSV/TXT files | 1,200/day | Local parsers | **$0.00** |
-| Image OCR | 500/day | Gemini 2.5 Flash | **~$3.30/month** |
-| Scanned PDF (10 pages avg) | 300/day | Gemini 2.5 Flash | **~$10/month** |
-| **TOTAL** | | | **~$13.30/month** |
+| Item | Volume | Method | Monthly Cost |
+|------|--------|--------|-------------|
+| DOCX/XLSX/CSV/TXT | 1,000/day | Local parsers | **$0.00** |
+| Native PDFs | 400/day | PyMuPDF | **$0.00** |
+| Scanned docs | 400/day | Surya + PaddleOCR | **$0.00** |
+| Graphs/Charts | 150/day | Gemini 2.5 Flash | **~$1.50/month** |
+| Low confidence fallback | 50/day | Gemini 2.5 Flash | **~$0.50/month** |
+| **TOTAL** | | | **~$2.00/month** |
 
-**Bottom line:** Gemini-based OCR is absurdly cheap. The hybrid approach makes it even cheaper by avoiding API calls for digital files.
+**Bottom line:** Multi-OCR Hybrid is extremely cost-effective — 90%+ processing is free.
 
 ---
 
-## 8. Python Libraries Required
+## 9. Python Libraries Required
 
 ### New Dependencies (add to `requirements.txt`)
 
-```
-# File parsing — digital documents (FREE, local)
-python-docx>=1.1.0          # .docx parsing
-openpyxl>=3.1.0              # .xlsx parsing
-PyMuPDF>=1.24.0              # PDF text extraction + page rendering
-pandas>=2.2.0                # CSV/Excel reading + data structuring
-Pillow>=10.0.0               # Image format conversion (BMP, TIFF, WebP → PNG/JPEG)
+```text
+# ============================================
+# FILE UPLOAD & OCR DEPENDENCIES
+# ============================================
 
-# Gemini multimodal (already partially installed)
-google-generativeai>=0.8.0   # Direct Gemini API (for file upload + vision)
+# Local OCR Engines (FREE)
+surya-ocr>=0.6.0              # Best layout + general OCR
+paddlepaddle>=2.6.0           # PaddlePaddle framework
+paddleocr>=2.7.0              # Table structure (PP-Structure)
 
-# File handling
-python-multipart>=0.0.9      # FastAPI multipart file upload support
-aiofiles>=24.1.0             # Async file I/O
-python-magic>=0.4.27         # MIME type detection (reliable file type identification)
+# Document Parsers (FREE)
+python-docx>=1.1.0            # .docx parsing
+openpyxl>=3.1.0               # .xlsx parsing
+PyMuPDF>=1.24.0               # PDF text extraction
+pandas>=2.2.0                 # CSV/Excel + data structuring
+Pillow>=10.0.0                # Image format conversion
+
+# Gemini API (for graphs + fallback)
+google-generativeai>=0.8.0    # Direct Gemini API
+
+# File Handling
+python-multipart>=0.0.9       # FastAPI multipart upload
+aiofiles>=24.1.0              # Async file I/O
+python-magic>=0.4.27          # MIME type detection
 ```
 
 ### Already Installed (no changes needed)
 
-```
-langchain-google-genai       # Already in requirements.txt
-fastapi                      # Already in requirements.txt
-pydantic                     # Already in requirements.txt
+```text
+langchain-google-genai        # Already in requirements.txt
+fastapi                       # Already in requirements.txt
+pydantic                      # Already in requirements.txt
 ```
 
 ### System Dependencies
 
-- **None required** for the hybrid approach (no Tesseract needed!)
-- Gemini handles all OCR, local libs handle digital files
-- If you want a Tesseract fallback (optional, for offline mode): `apt-get install tesseract-ocr`
+For **Docker**, add to Dockerfile:
+
+```dockerfile
+# Required for python-magic
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libmagic1 \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+**No Tesseract needed!** Surya and PaddleOCR handle all OCR locally.
 
 ---
 
-## 9. Implementation Plan (Step-by-Step)
+## 10. Implementation Plan (Step-by-Step)
+
+### Architecture Overview
+
+```mermaid
+flowchart TB
+    subgraph Frontend["Frontend (Next.js)"]
+        UI[Chat Input + Paperclip]
+        Preview[File Preview Component]
+        Progress[Upload Progress]
+    end
+
+    subgraph Backend["Backend (FastAPI)"]
+        Upload["/api/v1/upload"]
+        Router[File Type Router]
+
+        subgraph Handlers["File Handlers"]
+            Text[Text Handler]
+            Docx[DOCX Handler]
+            Excel[Excel Handler]
+            PDF[PDF Handler]
+            Image[Image Handler]
+        end
+
+        subgraph OCR["OCR Engines"]
+            Surya[Surya OCR]
+            Paddle[PaddleOCR]
+            Gemini[Gemini Vision]
+        end
+
+        Store[(Redis Cache)]
+    end
+
+    UI --> Upload
+    Upload --> Router
+    Router --> Handlers
+    PDF --> OCR
+    Image --> OCR
+    Handlers --> Store
+    Store --> Chat["/api/v1/chat"]
+
+    style Frontend fill:#E6F3FF
+    style Backend fill:#F0FFF0
+```
 
 ### Phase 1: Backend — File Processing Service
 
-**Step 1.1: Create file processing module**
+**Step 1.1: Create file processing module structure**
+
 ```
 app/
   services/
     file_processing/
       __init__.py
-      router.py          # Routes file to correct handler
+      router.py           # Routes file to correct handler
       text_handler.py     # .txt, .md, .csv, .tex
       docx_handler.py     # .docx
       excel_handler.py    # .xlsx, .xls
-      pdf_handler.py      # .pdf (native + scanned detection)
+      pdf_handler.py      # .pdf (native + scanned)
       image_handler.py    # .png, .jpg, etc.
-      gemini_ocr.py       # Gemini Vision API integration
-      models.py           # Pydantic schemas for extracted content
+      ocr/
+        __init__.py
+        surya_ocr.py      # Surya OCR integration
+        paddle_ocr.py     # PaddleOCR integration
+        gemini_ocr.py     # Gemini Vision API
+      models.py           # Pydantic schemas
 ```
 
-**Step 1.2: File type router logic**
-- Detect MIME type using `python-magic`
-- Route to appropriate handler
-- Each handler returns a standardized `ExtractedContent` schema:
-  ```python
-  class ExtractedContent(BaseModel):
-      text: str                    # Extracted plain text
-      structured_data: dict | None # Tables, key-value pairs if applicable
-      metadata: dict               # Page count, file type, extraction method
-      markdown: str                # Formatted markdown for chat display
-  ```
+**Step 1.2: Define standardized output schema**
 
-**Step 1.3: Gemini Vision OCR service**
-- Use `google-generativeai` SDK directly (not LangChain) for file uploads
-- Upload file via `client.files.upload()` for files > 20MB
-- For smaller files, send inline with the prompt
-- Use structured output (`response_schema`) for consistent JSON
-- Model: `gemini-2.0-flash` (cheapest, sufficient for OCR)
+```python
+from pydantic import BaseModel
+
+class ExtractedContent(BaseModel):
+    text: str                      # Extracted plain text
+    structured_data: dict | None   # Tables, key-value pairs
+    metadata: dict                 # Page count, method, confidence
+    markdown: str                  # Formatted for chat display
+
+class ExtractionMetadata(BaseModel):
+    file_type: str
+    pages: int | None
+    extraction_method: str         # "pymupdf", "surya", "paddle", "gemini"
+    confidence: float              # 0.0 - 1.0
+    tokens_used: int               # 0 for local, >0 for Gemini
+    processing_time_ms: int
+```
+
+**Step 1.3: Implement OCR selection logic**
+
+```mermaid
+flowchart TD
+    A[File Received] --> B{MIME Type?}
+
+    B -->|application/pdf| C[PDF Handler]
+    B -->|image/*| D[Image Handler]
+    B -->|application/vnd.openxmlformats...| E[DOCX Handler]
+    B -->|application/vnd.ms-excel...| F[Excel Handler]
+    B -->|text/*| G[Text Handler]
+
+    C --> H{Has Text?}
+    H -->|Yes| I[PyMuPDF Extract]
+    H -->|No| J{Table Detection}
+
+    J -->|Tables Found| K[PaddleOCR]
+    J -->|No Tables| L[Surya OCR]
+
+    D --> M{Content Type?}
+    M -->|Graph/Chart| N[Gemini Vision]
+    M -->|Table/Form| K
+    M -->|Document| L
+```
 
 ### Phase 2: Backend — Upload Endpoint
 
 **Step 2.1: Create upload API endpoint**
+
 ```
 POST /api/v1/upload
   - Accept: multipart/form-data
@@ -301,51 +610,108 @@ POST /api/v1/upload
   - Return: { file_id, extracted_content, metadata }
 ```
 
-**Step 2.2: File storage (optional, for future reference)**
-- Store uploaded files temporarily (local disk or MinIO if available)
-- Store extraction results in Redis (tied to session, same TTL as conversations)
-- Clean up files after TTL expires
+**Step 2.2: File storage strategy**
+
+```mermaid
+flowchart LR
+    Upload[File Upload] --> Temp[Temp Storage]
+    Temp --> Process[Process & Extract]
+    Process --> Cache[(Redis Cache)]
+    Cache -->|TTL: 24h| Cleanup[Auto Cleanup]
+
+    Process --> Delete[Delete Original File]
+```
 
 ### Phase 3: Backend — Chat Integration
 
 **Step 3.1: Extend chat to accept file context**
-- Modify `ChatRequest` schema to include optional `file_ids: list[str]`
-- When file IDs are provided, load extracted content from Redis
-- Prepend extracted content to the conversation context
-- Gemini then reasons over both the file content and the user's question
 
-**Step 3.2: Update supervisor agent**
-- Add file context injection into the system prompt
-- Format: include file content as a clearly delimited block in the conversation
+```python
+class ChatRequest(BaseModel):
+    message: str
+    session_id: str | None = None
+    file_ids: list[str] | None = None  # NEW FIELD
+```
+
+**Step 3.2: Context injection flow**
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Chat API
+    participant Redis
+    participant Gemini
+
+    User->>Chat API: POST /chat {message, file_ids}
+    Chat API->>Redis: Get extracted content for file_ids
+    Redis-->>Chat API: Return cached content
+    Chat API->>Chat API: Build prompt with file context
+    Chat API->>Gemini: Send enriched prompt
+    Gemini-->>Chat API: Response
+    Chat API-->>User: Return response
+```
 
 ### Phase 4: Frontend — Upload UI
 
-**Step 4.1: Wire up the paperclip button**
-- Add `<input type="file" multiple accept="*/*">` behind the paperclip icon
-- Show file preview (name, size, type icon) before sending
-- Upload via `POST /api/v1/upload` with progress tracking
-- Display extraction result in chat as a message or attachment
+**Step 4.1: Component architecture**
 
-**Step 4.2: Drag & drop support**
-- Add drop zone to the chat input area
-- Same flow as paperclip upload
+```mermaid
+flowchart TD
+    subgraph ChatInput["chat-input.tsx"]
+        Paperclip[Paperclip Button]
+        FileInput[Hidden File Input]
+        TextArea[Message Input]
+    end
 
-**Step 4.3: File preview in messages**
-- Show uploaded files as cards in message bubbles
-- Display extraction status (processing → done)
-- Option to expand/collapse extracted content
+    subgraph FileUI["File Upload UI"]
+        Preview[file-preview.tsx]
+        Progress[upload-progress.tsx]
+        DropZone[file-drop-zone.tsx]
+    end
+
+    subgraph State["State Management"]
+        Store[chat-store.ts]
+        Hook[use-chat.ts]
+    end
+
+    Paperclip --> FileInput
+    FileInput --> Preview
+    Preview --> Progress
+    DropZone --> Preview
+
+    Progress --> Hook
+    Hook --> Store
+```
+
+**Step 4.2: Files to modify**
+
+| File | Change |
+|------|--------|
+| `chat-input.tsx` | Wire paperclip to file input, add upload logic |
+| `chat-store.ts` | Add pending files state |
+| `use-chat.ts` | Handle file uploads in send flow |
+| `message-bubble.tsx` | Render file attachments |
+
+**Step 4.3: New components to create**
+
+| Component | Purpose |
+|-----------|---------|
+| `file-preview.tsx` | File card (icon, name, size) |
+| `file-drop-zone.tsx` | Drag & drop overlay |
+| `upload-progress.tsx` | Progress bar during upload |
 
 ### Phase 5: Polish & Edge Cases
 
-- Handle password-protected PDFs (error message)
-- Handle corrupted files gracefully
-- Add file size validation (frontend + backend)
-- Rate limiting on upload endpoint
-- Logging & monitoring for OCR costs
+- [ ] Handle password-protected PDFs
+- [ ] Handle corrupted files gracefully
+- [ ] File size validation (frontend + backend)
+- [ ] Rate limiting on upload endpoint
+- [ ] Logging & monitoring for OCR costs
+- [ ] Image resize before Gemini (max 2048px)
 
 ---
 
-## 10. API Design
+## 11. API Design
 
 ### Upload Endpoint
 
@@ -371,14 +737,16 @@ Response (200):
       "items": [...]
     },
     "markdown": "## Invoice #1234\n\n| Item | Qty | Price |\n|...",
-    "method": "pymupdf_native",  // or "gemini_vision"
+    "method": "paddle_ocr",
+    "confidence": 0.95,
     "pages": 3,
-    "tokens_used": 0  // 0 for local, >0 for Gemini
+    "tokens_used": 0
   }
 }
 
 Response (400): { "error": "File type not supported" }
 Response (413): { "error": "File too large (max 50MB)" }
+Response (422): { "error": "Could not extract content from file" }
 ```
 
 ### Extended Chat Endpoint
@@ -392,9 +760,38 @@ POST /api/v1/chat
 }
 ```
 
+### Upload Flow Sequence
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant FastAPI
+    participant FileRouter
+    participant OCR
+    participant Redis
+
+    Client->>FastAPI: POST /upload (file)
+    FastAPI->>FastAPI: Validate size & type
+    FastAPI->>FileRouter: Route by MIME type
+
+    alt Digital File (docx, xlsx, csv)
+        FileRouter->>FileRouter: Parse locally (FREE)
+    else Scanned PDF / Image
+        FileRouter->>OCR: Process with Surya/Paddle
+        OCR-->>FileRouter: Extracted content
+    else Graph / Chart
+        FileRouter->>OCR: Gemini Vision API
+        OCR-->>FileRouter: Interpreted content
+    end
+
+    FileRouter->>Redis: Cache extraction (TTL: 24h)
+    FileRouter-->>FastAPI: Return result
+    FastAPI-->>Client: { file_id, extraction }
+```
+
 ---
 
-## 11. Frontend Changes
+## 12. Frontend Changes
 
 ### Files to Modify
 
@@ -415,66 +812,91 @@ POST /api/v1/chat
 | `file-drop-zone.tsx` | Drag & drop overlay for chat area |
 | `upload-progress.tsx` | Progress bar during upload/extraction |
 
+### UI State Flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> FileSelected: User selects file
+    FileSelected --> Uploading: User sends message
+    Uploading --> Processing: Upload complete
+    Processing --> Complete: Extraction done
+    Complete --> Idle: Reset
+
+    Uploading --> Error: Upload failed
+    Processing --> Error: Extraction failed
+    Error --> Idle: Dismiss
+```
+
 ---
 
-## 12. Risks & Considerations
+## 13. Risks & Considerations
 
 ### Technical Risks
 
 | Risk | Mitigation |
 |------|------------|
-| Large files (>50MB) timeout | Implement chunked upload or reject with clear error |
-| Scanned PDF detection fails | Default to Gemini if PyMuPDF returns < 50 chars/page |
-| Gemini rate limits | Use `gemini-2.0-flash` free tier (1,500 RPD), queue excess |
+| Large files (>50MB) timeout | Reject with clear error, suggest splitting |
+| Scanned PDF detection fails | Default to OCR if PyMuPDF returns < 50 chars/page |
+| OCR confidence too low | Fallback to Gemini for verification |
+| PaddleOCR/Surya model loading slow | Lazy load on first use, keep in memory |
+| Gemini rate limits | Queue excess, use free tier (1,500 RPD) |
 | Password-protected files | Detect and return user-friendly error |
-| Malicious file uploads | Validate MIME type, scan with ClamAV (optional), size limits |
+| Malicious file uploads | Validate MIME type server-side, size limits |
 
 ### Cost Risks
 
 | Scenario | Risk | Mitigation |
 |----------|------|------------|
-| User uploads 100-page PDF | High token count | Warn user, set page limit (e.g., 50 pages) |
-| Abuse/spam uploads | Unnecessary API spend | Rate limit per user (e.g., 20 uploads/hour) |
-| Large images (4K+) | Higher token count | Resize to max 2048px before sending to Gemini |
+| 100+ page PDF | High processing time | Set page limit (50 pages) |
+| Abuse/spam uploads | Unnecessary compute | Rate limit per user (20/hour) |
+| Large images (4K+) | Slow processing | Resize to max 2048px |
+| All graphs sent to Gemini | Higher API cost | Image classifier to detect graphs |
 
 ### Security
 
-- **Never execute uploaded files** — only parse/read them
-- **Validate file types server-side** using `python-magic` (not just extension)
-- **Sanitize extracted content** before injecting into prompts (prevent prompt injection)
-- **Temporary storage only** — delete files after extraction (or after TTL)
+```mermaid
+flowchart TD
+    A[File Upload] --> B{Validate MIME}
+    B -->|Invalid| C[Reject]
+    B -->|Valid| D{Check Size}
+    D -->|>50MB| C
+    D -->|OK| E{Scan Content}
+    E -->|Suspicious| C
+    E -->|Safe| F[Process]
+    F --> G[Delete Original]
+    G --> H[Cache Extraction Only]
+```
+
+**Security Rules:**
+- **Never execute uploaded files** — only parse/read
+- **Validate file types server-side** using `python-magic`
+- **Sanitize extracted content** before prompt injection
+- **Temporary storage only** — delete files after extraction
+- **No file paths in responses** — only UUIDs
 
 ---
 
-## 13. Sources
+## 14. Sources
+
+### OCR Libraries & Comparisons
+- [Surya OCR — GitHub](https://github.com/VikParuchuri/surya)
+- [PaddleOCR — GitHub](https://github.com/PaddlePaddle/PaddleOCR)
+- [Best PDF OCR Software 2026 — Unstract](https://unstract.com/blog/best-pdf-ocr-software/)
+- [AI OCR Models Comparison — IntuitionLabs](https://intuitionlabs.ai/articles/ai-ocr-models-pdf-structured-text-comparison)
+- [Document Extraction: LLMs vs OCRs — Vellum](https://www.vellum.ai/blog/document-data-extraction-llms-vs-ocrs)
 
 ### Gemini API & Pricing
 - [Gemini API Pricing — Official](https://ai.google.dev/gemini-api/docs/pricing)
-- [Gemini API Pricing 2026 Complete Guide — AI Free API](https://www.aifreeapi.com/en/posts/gemini-api-pricing-2026)
-- [Gemini 3 Pro & API Costs 2026 — GLBGPT](https://www.glbgpt.com/hub/gemini-3-pro-costs-gemini-3-api-costs-latest-insights-for-2025/)
-- [Gemini API Cost 2026 — Apidog](https://apidog.com/blog/gemini-3-0-api-cost/)
-- [Gemini 3 for Developers — Google Blog](https://blog.google/technology/developers/gemini-3-developers/)
-
-### Document Processing & OCR
 - [Gemini Document Understanding — Official](https://ai.google.dev/gemini-api/docs/document-processing)
 - [Gemini Files API — Official](https://ai.google.dev/gemini-api/docs/files)
-- [Gemini File Input Methods — Official](https://ai.google.dev/gemini-api/docs/file-input-methods)
-- [Gemini 2.0 Flash OCR Workflow — Apidog](https://apidog.com/blog/gemini-2-0-flash-ocr/)
 - [Structured Data from PDFs with Gemini — Phil Schmid](https://www.philschmid.de/gemini-pdf-to-data)
-- [Gemini for Document OCR — Rogue Marketing](https://the-rogue-marketing.github.io/why-google-gemini-2.5-pro-api-provides-best-and-cost-effective-solution-for-ocr-and-document-intelligence/)
-- [Evaluating Gemini for Invoice OCR — DEV Community](https://dev.to/mayankcse/evaluating-google-gemini-for-document-ocr-using-hugging-face-invoice-dataset-567i)
 
-### OCR Libraries & Comparisons
-- [Best PDF OCR Software 2026 — Unstract](https://unstract.com/blog/best-pdf-ocr-software/)
-- [AI OCR Models Comparison — IntuitionLabs](https://intuitionlabs.ai/articles/ai-ocr-models-pdf-structured-text-comparison)
-- [Document Extraction: LLMs vs OCRs 2026 — Vellum](https://www.vellum.ai/blog/document-data-extraction-llms-vs-ocrs)
-- [Best Python PDF-to-Text Libraries 2026 — Unstract](https://unstract.com/blog/evaluating-python-pdf-to-text-libraries/)
-- [Tesseract OCR Guide 2026 — Unstract](https://unstract.com/blog/guide-to-optical-character-recognition-with-tesseract-ocr/)
-- [PyMuPDF OCR Docs](https://pymupdf.readthedocs.io/en/latest/recipes-ocr.html)
-- [Top 3 OCR Tools 2026 — Koncile](https://www.koncile.ai/en/ressources/top-3-best-ocr-tools-for-extracting-text-from-images-in-2025)
+### Document Processing
+- [PyMuPDF Documentation](https://pymupdf.readthedocs.io/)
+- [python-docx Documentation](https://python-docx.readthedocs.io/)
+- [openpyxl Documentation](https://openpyxl.readthedocs.io/)
 
 ### Open Source References
-- [gemini-ocr — GitHub](https://github.com/skitsanos/gemini-ocr)
-- [gemini-file-api — GitHub](https://github.com/abhaydixit07/gemini-file-api)
 - [Google Cloud Document Processing Notebook](https://github.com/GoogleCloudPlatform/generative-ai/blob/main/gemini/use-cases/document-processing/document_processing.ipynb)
-- [SpeedyOCR — Gemini Competition](https://ai.google.dev/competition/projects/speedyocr)
+- [gemini-ocr — GitHub](https://github.com/skitsanos/gemini-ocr)
