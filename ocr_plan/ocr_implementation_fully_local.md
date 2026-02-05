@@ -2,7 +2,7 @@
 
 ## Overview
 
-This approach uses **Surya OCR** for all OCR needs with local parsers for digital files. No external API calls, 100% free.
+This approach uses **PaddleOCR** (primary for tables/invoices) and **Surya OCR** (fallback for general documents) with local parsers for digital files. No external API calls, 100% free.
 
 ```mermaid
 flowchart TD
@@ -12,29 +12,42 @@ flowchart TD
     B -->|.docx| D[python-docx]
     B -->|.xlsx .xls| E[openpyxl]
     B -->|.pdf| F{Has Text?}
-    B -->|Images| G[Surya OCR]
+    B -->|Images| G{Content Analysis}
 
     F -->|Yes| H[PyMuPDF Extract]
     F -->|No| G
 
-    C --> I[Structured Output]
-    D --> I
-    E --> I
-    H --> I
-    G --> I
+    G -->|Tables/Invoices| I[PaddleOCR]
+    G -->|General Docs| J[Surya OCR]
 
-    I --> J[Inject to Chat]
+    I --> K{Confidence >= 55%?}
+    J --> K
+
+    K -->|Yes| L[Accept Result]
+    K -->|No| M[Try Other Engine]
+
+    M --> L
+
+    C --> N[Structured Output]
+    D --> N
+    E --> N
+    H --> N
+    L --> N
+
+    N --> O[Inject to Chat]
 
     style C fill:#2D5016,color:#fff
     style D fill:#2D5016,color:#fff
     style E fill:#2D5016,color:#fff
     style H fill:#2D5016,color:#fff
-    style G fill:#1E3A5F,color:#fff
+    style I fill:#1E3A5F,color:#fff
+    style J fill:#1E3A5F,color:#fff
+    style M fill:#1E3A5F,color:#fff
 ```
 
 **Legend:**
 - Dark Green = Free (local parsers)
-- Dark Blue = Free (local OCR - Surya)
+- Dark Blue = Free (local OCR - PaddleOCR/Surya)
 
 ---
 
@@ -47,11 +60,23 @@ flowchart TD
 
 ---
 
+## OCR Engine Selection
+
+| Content Type | Primary Engine | Fallback | Reason |
+|-------------|----------------|----------|--------|
+| Tables | PaddleOCR | Surya | PP-Structure excels at tables |
+| Invoices | PaddleOCR | Surya | Better structured data extraction |
+| Forms | PaddleOCR | Surya | Good checkbox/field recognition |
+| General Documents | Surya | PaddleOCR | Better layout detection |
+| Handwritten | Surya | PaddleOCR | Superior handwriting support |
+
+---
+
 ## Limitations
 
-- Cannot interpret graphs/charts (just sees pixels)
-- Lower accuracy on complex table layouts
-- Slower than API-based solutions
+- Cannot interpret graphs/charts (just extracts text/numbers)
+- No visual understanding (unlike Gemini)
+- Slower than API-based solutions on first load (model loading)
 
 ---
 
@@ -64,10 +89,12 @@ flowchart TD
 # FULLY LOCAL OCR DEPENDENCIES
 # ============================================
 
-# OCR Engine
-surya-ocr>=0.6.0              # Layout + OCR
+# OCR Engines (FREE)
+paddlepaddle>=2.6.0           # PaddlePaddle framework
+paddleocr>=2.7.0              # PaddleOCR + PP-Structure
+surya-ocr>=0.6.0              # Surya OCR (layout + recognition)
 
-# Document Parsers
+# Document Parsers (FREE)
 python-docx>=1.1.0            # .docx parsing
 openpyxl>=3.1.0               # .xlsx parsing
 PyMuPDF>=1.24.0               # PDF text extraction
@@ -78,6 +105,7 @@ Pillow>=10.0.0                # Image processing
 python-multipart>=0.0.9       # FastAPI file upload
 aiofiles>=24.1.0              # Async file I/O
 python-magic>=0.4.27          # MIME detection
+numpy>=1.26.0                 # Array operations
 ```
 
 ### Dockerfile additions
@@ -86,6 +114,8 @@ python-magic>=0.4.27          # MIME detection
 # Add to existing Dockerfile
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic1 \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 ```
 
@@ -107,7 +137,11 @@ app/
 │       ├── image_handler.py       # Images
 │       ├── ocr/
 │       │   ├── __init__.py
-│       │   └── surya_ocr.py       # Surya OCR wrapper
+│       │   ├── paddle_ocr.py      # PaddleOCR wrapper
+│       │   ├── surya_ocr.py       # Surya OCR wrapper
+│       │   └── ocr_router.py      # Routes to best engine
+│       ├── classifiers/
+│       │   └── table_detector.py  # Detect tables in images
 │       └── models.py              # Pydantic schemas
 ├── api/
 │   └── v1/
@@ -136,7 +170,17 @@ class ExtractionMethod(StrEnum):
     PYTHON_DOCX = "python_docx"
     OPENPYXL = "openpyxl"
     PYMUPDF = "pymupdf"
+    PADDLE_OCR = "paddle_ocr"
     SURYA_OCR = "surya_ocr"
+
+
+class ImageType(StrEnum):
+    """Type of image content."""
+    DOCUMENT = "document"
+    TABLE = "table"
+    INVOICE = "invoice"
+    FORM = "form"
+    UNKNOWN = "unknown"
 
 
 class ExtractionMetadata(BaseModel):
@@ -147,12 +191,21 @@ class ExtractionMetadata(BaseModel):
     extraction_method: ExtractionMethod
     confidence: float = Field(ge=0.0, le=1.0, default=1.0)
     processing_time_ms: int
+    ocr_engines_used: list[str] = []
+
+
+class TableData(BaseModel):
+    """Extracted table data."""
+    headers: list[str]
+    rows: list[list[str]]
+    confidence: float
 
 
 class ExtractedContent(BaseModel):
     """Extracted content from a file."""
     text: str
     structured_data: dict | None = None
+    tables: list[TableData] | None = None
     markdown: str
     metadata: ExtractionMetadata
 
@@ -166,336 +219,213 @@ class UploadResponse(BaseModel):
 
 ---
 
-### Step 2: Base Handler
+### Step 2: PaddleOCR Wrapper
 
-**File: `app/services/file_processing/base_handler.py`**
-
-```python
-"""Base handler for file processing."""
-
-from abc import ABC, abstractmethod
-from pathlib import Path
-
-from app.services.file_processing.models import ExtractedContent
-
-
-class BaseFileHandler(ABC):
-    """Abstract base class for file handlers."""
-
-    SUPPORTED_EXTENSIONS: list[str] = []
-
-    @classmethod
-    def can_handle(cls, file_path: Path) -> bool:
-        """Check if this handler can process the file."""
-        return file_path.suffix.lower() in cls.SUPPORTED_EXTENSIONS
-
-    @abstractmethod
-    async def extract(self, file_path: Path) -> ExtractedContent:
-        """Extract content from the file."""
-        pass
-
-    def _text_to_markdown(self, text: str) -> str:
-        """Convert plain text to markdown."""
-        return f"```\n{text}\n```"
-```
-
----
-
-### Step 3: Text Handler
-
-**File: `app/services/file_processing/text_handler.py`**
+**File: `app/services/file_processing/ocr/paddle_ocr.py`**
 
 ```python
-"""Handler for text files (.txt, .md, .csv)."""
+"""PaddleOCR wrapper for table extraction."""
 
-import csv
 import time
-from io import StringIO
 from pathlib import Path
 
-from app.services.file_processing.base_handler import BaseFileHandler
+from paddleocr import PaddleOCR, PPStructure
+from PIL import Image
+import numpy as np
+
 from app.services.file_processing.models import (
     ExtractedContent,
     ExtractionMetadata,
     ExtractionMethod,
+    TableData,
 )
 
 
-class TextHandler(BaseFileHandler):
-    """Handler for plain text files."""
+class PaddleOCREngine:
+    """Wrapper for PaddleOCR with table structure recognition."""
 
-    SUPPORTED_EXTENSIONS = [".txt", ".md", ".tex"]
+    _instance = None
+    _ocr = None
+    _table_engine = None
 
-    async def extract(self, file_path: Path) -> ExtractedContent:
-        """Extract content from text file."""
-        start_time = time.perf_counter()
+    def __new__(cls):
+        """Singleton pattern for model caching."""
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
 
-        text = file_path.read_text(encoding="utf-8")
+    def _load_models(self):
+        """Lazy load OCR models."""
+        if self._ocr is None:
+            # Standard OCR
+            self._ocr = PaddleOCR(
+                use_angle_cls=True,
+                lang="en",
+                show_log=False,
+            )
 
-        processing_time = int((time.perf_counter() - start_time) * 1000)
+            # Table structure recognition (PP-Structure)
+            self._table_engine = PPStructure(
+                show_log=False,
+                layout=True,
+                table=True,
+            )
 
-        # For .md files, text is already markdown
-        if file_path.suffix.lower() == ".md":
-            markdown = text
-        else:
-            markdown = self._text_to_markdown(text)
+    async def extract_text(self, image_path: Path) -> tuple[str, float]:
+        """Extract text from image using PaddleOCR."""
+        self._load_models()
 
-        return ExtractedContent(
-            text=text,
-            structured_data=None,
-            markdown=markdown,
-            metadata=ExtractionMetadata(
-                file_type=file_path.suffix.lower(),
-                file_size=file_path.stat().st_size,
-                extraction_method=ExtractionMethod.DIRECT_READ,
-                processing_time_ms=processing_time,
-            ),
-        )
+        img = np.array(Image.open(image_path))
+        result = self._ocr.ocr(img, cls=True)
 
+        text_lines = []
+        confidences = []
 
-class CSVHandler(BaseFileHandler):
-    """Handler for CSV files."""
+        for line in result[0] or []:
+            text = line[1][0]
+            confidence = line[1][1]
+            text_lines.append(text)
+            confidences.append(confidence)
 
-    SUPPORTED_EXTENSIONS = [".csv"]
+        text = "\n".join(text_lines)
+        avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
 
-    async def extract(self, file_path: Path) -> ExtractedContent:
-        """Extract content from CSV file."""
-        start_time = time.perf_counter()
+        return text, avg_confidence
 
-        text = file_path.read_text(encoding="utf-8")
+    async def extract_tables(self, image_path: Path) -> tuple[str, list[TableData], float]:
+        """Extract tables from image using PP-Structure."""
+        self._load_models()
 
-        # Parse CSV to structured data
-        reader = csv.DictReader(StringIO(text))
-        rows = list(reader)
-        headers = reader.fieldnames or []
+        img = np.array(Image.open(image_path))
+        result = self._table_engine(img)
 
-        # Convert to markdown table
-        markdown = self._csv_to_markdown(headers, rows)
+        tables = []
+        all_text = []
+        confidences = []
 
-        processing_time = int((time.perf_counter() - start_time) * 1000)
+        for item in result:
+            if item["type"] == "table":
+                table_data = self._parse_table(item)
+                if table_data:
+                    tables.append(table_data)
+                    all_text.append(self._table_to_text(table_data))
+                    confidences.append(table_data.confidence)
 
-        return ExtractedContent(
-            text=text,
-            structured_data={"headers": headers, "rows": rows},
-            markdown=markdown,
-            metadata=ExtractionMetadata(
-                file_type=".csv",
-                file_size=file_path.stat().st_size,
-                extraction_method=ExtractionMethod.DIRECT_READ,
-                processing_time_ms=processing_time,
-            ),
-        )
+            elif item["type"] == "text":
+                if "res" in item:
+                    for line in item["res"]:
+                        text = line["text"]
+                        conf = line.get("confidence", 0.9)
+                        all_text.append(text)
+                        confidences.append(conf)
 
-    def _csv_to_markdown(self, headers: list[str], rows: list[dict]) -> str:
-        """Convert CSV data to markdown table."""
-        if not headers:
-            return "*(Empty CSV file)*"
+        text = "\n\n".join(all_text)
+        avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
 
+        return text, tables, avg_confidence
+
+    def _parse_table(self, table_item: dict) -> TableData | None:
+        """Parse PP-Structure table result into TableData."""
+        try:
+            html = table_item.get("res", {}).get("html", "")
+            if not html:
+                return None
+
+            import re
+
+            rows_match = re.findall(r"<tr>(.*?)</tr>", html, re.DOTALL)
+            if not rows_match:
+                return None
+
+            parsed_rows = []
+            for row_html in rows_match:
+                cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row_html, re.DOTALL)
+                cells = [re.sub(r"<[^>]+>", "", cell).strip() for cell in cells]
+                parsed_rows.append(cells)
+
+            if not parsed_rows:
+                return None
+
+            headers = parsed_rows[0] if parsed_rows else []
+            data_rows = parsed_rows[1:] if len(parsed_rows) > 1 else []
+
+            return TableData(
+                headers=headers,
+                rows=data_rows,
+                confidence=table_item.get("score", 0.9),
+            )
+        except Exception:
+            return None
+
+    def _table_to_text(self, table: TableData) -> str:
+        """Convert TableData to plain text."""
         lines = []
-
-        # Header row
-        lines.append("| " + " | ".join(headers) + " |")
-        lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
-
-        # Data rows (limit to 100 for display)
-        for row in rows[:100]:
-            values = [str(row.get(h, "")) for h in headers]
-            lines.append("| " + " | ".join(values) + " |")
-
-        if len(rows) > 100:
-            lines.append(f"\n*... and {len(rows) - 100} more rows*")
-
-        return "\n".join(lines)
-```
-
----
-
-### Step 4: DOCX Handler
-
-**File: `app/services/file_processing/docx_handler.py`**
-
-```python
-"""Handler for DOCX files."""
-
-import time
-from pathlib import Path
-
-from docx import Document
-
-from app.services.file_processing.base_handler import BaseFileHandler
-from app.services.file_processing.models import (
-    ExtractedContent,
-    ExtractionMetadata,
-    ExtractionMethod,
-)
-
-
-class DocxHandler(BaseFileHandler):
-    """Handler for Microsoft Word documents."""
-
-    SUPPORTED_EXTENSIONS = [".docx"]
-
-    async def extract(self, file_path: Path) -> ExtractedContent:
-        """Extract content from DOCX file."""
-        start_time = time.perf_counter()
-
-        doc = Document(str(file_path))
-
-        paragraphs = []
-        tables_md = []
-
-        # Extract paragraphs
-        for para in doc.paragraphs:
-            if para.text.strip():
-                paragraphs.append(para.text)
-
-        # Extract tables
-        for table in doc.tables:
-            tables_md.append(self._table_to_markdown(table))
-
-        text = "\n\n".join(paragraphs)
-
-        # Build markdown
-        markdown_parts = []
-        if paragraphs:
-            markdown_parts.append("\n\n".join(paragraphs))
-        if tables_md:
-            markdown_parts.append("\n\n".join(tables_md))
-
-        markdown = "\n\n".join(markdown_parts)
-
-        processing_time = int((time.perf_counter() - start_time) * 1000)
-
-        return ExtractedContent(
-            text=text,
-            structured_data={"paragraphs": paragraphs, "table_count": len(doc.tables)},
-            markdown=markdown,
-            metadata=ExtractionMetadata(
-                file_type=".docx",
-                file_size=file_path.stat().st_size,
-                extraction_method=ExtractionMethod.PYTHON_DOCX,
-                processing_time_ms=processing_time,
-            ),
-        )
-
-    def _table_to_markdown(self, table) -> str:
-        """Convert DOCX table to markdown."""
-        rows = []
+        lines.append(" | ".join(table.headers))
+        lines.append("-" * 40)
         for row in table.rows:
-            cells = [cell.text.strip() for cell in row.cells]
-            rows.append(cells)
-
-        if not rows:
-            return ""
-
-        lines = []
-
-        # Header row
-        lines.append("| " + " | ".join(rows[0]) + " |")
-        lines.append("| " + " | ".join(["---"] * len(rows[0])) + " |")
-
-        # Data rows
-        for row in rows[1:]:
-            lines.append("| " + " | ".join(row) + " |")
-
+            lines.append(" | ".join(row))
         return "\n".join(lines)
-```
 
----
-
-### Step 5: Excel Handler
-
-**File: `app/services/file_processing/excel_handler.py`**
-
-```python
-"""Handler for Excel files (.xlsx, .xls)."""
-
-import time
-from pathlib import Path
-
-import pandas as pd
-
-from app.services.file_processing.base_handler import BaseFileHandler
-from app.services.file_processing.models import (
-    ExtractedContent,
-    ExtractionMetadata,
-    ExtractionMethod,
-)
-
-
-class ExcelHandler(BaseFileHandler):
-    """Handler for Excel spreadsheets."""
-
-    SUPPORTED_EXTENSIONS = [".xlsx", ".xls"]
-
-    async def extract(self, file_path: Path) -> ExtractedContent:
-        """Extract content from Excel file."""
+    async def extract_from_image(self, image_path: Path) -> ExtractedContent:
+        """Full extraction with table structure."""
         start_time = time.perf_counter()
 
-        # Read all sheets
-        excel_file = pd.ExcelFile(file_path)
-        sheets_data = {}
-        markdown_parts = []
-        text_parts = []
-
-        for sheet_name in excel_file.sheet_names:
-            df = pd.read_excel(excel_file, sheet_name=sheet_name)
-
-            # Store structured data
-            sheets_data[sheet_name] = df.to_dict(orient="records")
-
-            # Convert to text
-            text_parts.append(f"=== Sheet: {sheet_name} ===")
-            text_parts.append(df.to_string())
-
-            # Convert to markdown
-            markdown_parts.append(f"### Sheet: {sheet_name}")
-            markdown_parts.append(self._df_to_markdown(df))
-
-        text = "\n\n".join(text_parts)
-        markdown = "\n\n".join(markdown_parts)
+        text, tables, confidence = await self.extract_tables(image_path)
+        markdown = self._build_markdown(text, tables)
 
         processing_time = int((time.perf_counter() - start_time) * 1000)
 
         return ExtractedContent(
             text=text,
-            structured_data={"sheets": sheets_data, "sheet_names": excel_file.sheet_names},
+            tables=tables if tables else None,
+            structured_data={
+                "table_count": len(tables),
+                "has_tables": len(tables) > 0,
+            },
             markdown=markdown,
             metadata=ExtractionMetadata(
-                file_type=file_path.suffix.lower(),
-                file_size=file_path.stat().st_size,
-                extraction_method=ExtractionMethod.OPENPYXL,
+                file_type=image_path.suffix.lower(),
+                file_size=image_path.stat().st_size,
+                extraction_method=ExtractionMethod.PADDLE_OCR,
+                confidence=confidence,
                 processing_time_ms=processing_time,
+                ocr_engines_used=["paddle_ocr"],
             ),
         )
 
-    def _df_to_markdown(self, df: pd.DataFrame, max_rows: int = 100) -> str:
-        """Convert DataFrame to markdown table."""
-        if df.empty:
-            return "*(Empty sheet)*"
+    def _build_markdown(self, text: str, tables: list[TableData]) -> str:
+        """Build markdown with tables."""
+        parts = []
 
-        # Limit rows for display
-        display_df = df.head(max_rows)
+        if text:
+            parts.append(text)
 
-        headers = list(display_df.columns)
+        for i, table in enumerate(tables):
+            parts.append(f"\n### Table {i + 1}")
+            parts.append(self._table_to_markdown(table))
 
+        return "\n\n".join(parts)
+
+    def _table_to_markdown(self, table: TableData) -> str:
+        """Convert TableData to markdown table."""
         lines = []
-        lines.append("| " + " | ".join(str(h) for h in headers) + " |")
-        lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+        lines.append("| " + " | ".join(table.headers) + " |")
+        lines.append("| " + " | ".join(["---"] * len(table.headers)) + " |")
 
-        for _, row in display_df.iterrows():
-            values = [str(v) if pd.notna(v) else "" for v in row]
-            lines.append("| " + " | ".join(values) + " |")
-
-        if len(df) > max_rows:
-            lines.append(f"\n*... and {len(df) - max_rows} more rows*")
+        for row in table.rows:
+            padded_row = row + [""] * (len(table.headers) - len(row))
+            lines.append("| " + " | ".join(padded_row) + " |")
 
         return "\n".join(lines)
+
+
+# Singleton instance
+paddle_ocr = PaddleOCREngine()
 ```
 
 ---
 
-### Step 6: Surya OCR Wrapper
+### Step 3: Surya OCR Wrapper
 
 **File: `app/services/file_processing/ocr/surya_ocr.py`**
 
@@ -550,17 +480,13 @@ class SuryaOCR:
         """Extract text from an image using Surya OCR."""
         start_time = time.perf_counter()
 
-        # Ensure models are loaded
         self._load_models()
 
-        # Load image
         image = Image.open(image_path)
 
-        # Default to English
         if languages is None:
             languages = ["en"]
 
-        # Run OCR
         results = run_ocr(
             [image],
             [languages],
@@ -570,7 +496,6 @@ class SuryaOCR:
             self._rec_processor,
         )
 
-        # Extract text from results
         text_lines = []
         confidence_scores = []
 
@@ -580,8 +505,6 @@ class SuryaOCR:
                 confidence_scores.append(line.confidence)
 
         text = "\n".join(text_lines)
-
-        # Calculate average confidence
         avg_confidence = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0.0
 
         processing_time = int((time.perf_counter() - start_time) * 1000)
@@ -596,6 +519,7 @@ class SuryaOCR:
                 extraction_method=ExtractionMethod.SURYA_OCR,
                 confidence=avg_confidence,
                 processing_time_ms=processing_time,
+                ocr_engines_used=["surya_ocr"],
             ),
         )
 
@@ -610,7 +534,6 @@ class SuryaOCR:
         if languages is None:
             languages = ["en"]
 
-        # Run OCR on all images
         results = run_ocr(
             images,
             [languages] * len(images),
@@ -643,12 +566,208 @@ surya_ocr = SuryaOCR()
 
 ---
 
-### Step 7: PDF Handler
+### Step 4: Table Detector
+
+**File: `app/services/file_processing/classifiers/table_detector.py`**
+
+```python
+"""Detector for tables in images."""
+
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+
+
+class TableDetector:
+    """Detect if an image contains tables."""
+
+    def has_tables(self, image_path: Path) -> bool:
+        """Check if image likely contains tables."""
+        img = Image.open(image_path).convert("L")  # Grayscale
+        img_array = np.array(img)
+
+        # Detect horizontal and vertical lines
+        h_lines = self._detect_horizontal_lines(img_array)
+        v_lines = self._detect_vertical_lines(img_array)
+
+        # Tables typically have multiple intersecting lines
+        return h_lines >= 3 and v_lines >= 2
+
+    def _detect_horizontal_lines(self, img: np.ndarray) -> int:
+        """Count horizontal lines in image."""
+        h_diff = np.abs(np.diff(img.astype(np.int16), axis=0))
+        h_edges = np.sum(h_diff > 100, axis=1)
+        line_rows = np.sum(h_edges > img.shape[1] * 0.3)
+        return line_rows
+
+    def _detect_vertical_lines(self, img: np.ndarray) -> int:
+        """Count vertical lines in image."""
+        v_diff = np.abs(np.diff(img.astype(np.int16), axis=1))
+        v_edges = np.sum(v_diff > 100, axis=0)
+        line_cols = np.sum(v_edges > img.shape[0] * 0.3)
+        return line_cols
+
+
+# Singleton instance
+table_detector = TableDetector()
+```
+
+---
+
+### Step 5: OCR Router (FULLY_LOCAL)
+
+**File: `app/services/file_processing/ocr/ocr_router.py`**
+
+```python
+"""Routes images to the best local OCR engine."""
+
+import time
+from pathlib import Path
+
+from app.services.file_processing.models import ExtractedContent, ImageType
+from app.services.file_processing.ocr.paddle_ocr import paddle_ocr
+from app.services.file_processing.ocr.surya_ocr import surya_ocr
+from app.services.file_processing.classifiers.table_detector import table_detector
+
+
+class OCRRouter:
+    """Routes images to optimal local OCR engine."""
+
+    CONFIDENCE_THRESHOLD = 0.55
+
+    async def process(self, image_path: Path) -> ExtractedContent:
+        """Process image with optimal local OCR selection."""
+        start_time = time.perf_counter()
+
+        # Check for tables
+        has_tables = table_detector.has_tables(image_path)
+
+        if has_tables:
+            # PaddleOCR is best for tables
+            result = await paddle_ocr.extract_from_image(image_path)
+            primary_engine = "paddle_ocr"
+            fallback_engine = surya_ocr
+        else:
+            # Surya is best for general documents
+            result = await surya_ocr.extract_from_image(image_path)
+            primary_engine = "surya_ocr"
+            fallback_engine = paddle_ocr
+
+        # Check confidence for fallback
+        if result.metadata.confidence < self.CONFIDENCE_THRESHOLD:
+            # Try the other engine
+            alt_result = await fallback_engine.extract_from_image(image_path)
+
+            if alt_result.metadata.confidence > result.metadata.confidence:
+                result = alt_result
+                result.metadata.ocr_engines_used.append(primary_engine)
+
+        # Update total processing time
+        result.metadata.processing_time_ms = int((time.perf_counter() - start_time) * 1000)
+
+        return result
+
+    async def process_pdf_pages(
+        self,
+        images: list,
+    ) -> tuple[str, list, float]:
+        """Process multiple PDF pages with optimal routing."""
+        import tempfile
+        from PIL import Image as PILImage
+
+        all_text = []
+        all_tables = []
+        all_confidence = []
+
+        for page_idx, image in enumerate(images):
+            # Save temporarily for processing
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+                image.save(f.name)
+                temp_path = Path(f.name)
+
+            try:
+                result = await self.process(temp_path)
+                all_text.append(f"--- Page {page_idx + 1} ---\n{result.text}")
+
+                if result.tables:
+                    all_tables.extend(result.tables)
+
+                all_confidence.append(result.metadata.confidence)
+            finally:
+                temp_path.unlink()
+
+        text = "\n\n".join(all_text)
+        avg_confidence = sum(all_confidence) / len(all_confidence) if all_confidence else 0.0
+
+        return text, all_tables, avg_confidence
+
+
+# Singleton instance
+ocr_router = OCRRouter()
+```
+
+---
+
+### Step 6: Image Handler (Updated)
+
+**File: `app/services/file_processing/image_handler.py`**
+
+```python
+"""Handler for image files with multi-OCR routing."""
+
+import time
+from pathlib import Path
+
+from PIL import Image
+
+from app.services.file_processing.base_handler import BaseFileHandler
+from app.services.file_processing.models import ExtractedContent
+from app.services.file_processing.ocr.ocr_router import ocr_router
+
+
+class ImageHandler(BaseFileHandler):
+    """Handler for image files with smart OCR routing."""
+
+    SUPPORTED_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".webp"]
+    MAX_DIMENSION = 4096
+
+    async def extract(self, file_path: Path) -> ExtractedContent:
+        """Extract content from image using optimal OCR."""
+        start_time = time.perf_counter()
+
+        # Resize if needed
+        self._resize_if_needed(file_path)
+
+        # Use OCR router for optimal selection
+        result = await ocr_router.process(file_path)
+
+        # Update total processing time
+        total_time = int((time.perf_counter() - start_time) * 1000)
+        result.metadata.processing_time_ms = total_time
+
+        return result
+
+    def _resize_if_needed(self, file_path: Path) -> None:
+        """Resize image if it exceeds maximum dimensions."""
+        img = Image.open(file_path)
+
+        if img.width > self.MAX_DIMENSION or img.height > self.MAX_DIMENSION:
+            ratio = min(self.MAX_DIMENSION / img.width, self.MAX_DIMENSION / img.height)
+            new_size = (int(img.width * ratio), int(img.height * ratio))
+
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+            img.save(file_path)
+```
+
+---
+
+### Step 7: PDF Handler (Updated)
 
 **File: `app/services/file_processing/pdf_handler.py`**
 
 ```python
-"""Handler for PDF files."""
+"""Handler for PDF files with multi-OCR support."""
 
 import time
 from pathlib import Path
@@ -662,14 +781,14 @@ from app.services.file_processing.models import (
     ExtractionMetadata,
     ExtractionMethod,
 )
-from app.services.file_processing.ocr.surya_ocr import surya_ocr
+from app.services.file_processing.ocr.ocr_router import ocr_router
 
 
 class PDFHandler(BaseFileHandler):
-    """Handler for PDF documents."""
+    """Handler for PDF documents with smart OCR selection."""
 
     SUPPORTED_EXTENSIONS = [".pdf"]
-    MIN_TEXT_LENGTH = 50  # Minimum chars per page to consider it native
+    MIN_TEXT_LENGTH = 50
 
     async def extract(self, file_path: Path) -> ExtractedContent:
         """Extract content from PDF file."""
@@ -682,7 +801,7 @@ class PDFHandler(BaseFileHandler):
         native_text = self._extract_native_text(doc)
 
         if self._has_sufficient_text(native_text, page_count):
-            # Native PDF with text layer
+            doc.close()
             processing_time = int((time.perf_counter() - start_time) * 1000)
 
             return ExtractedContent(
@@ -696,26 +815,35 @@ class PDFHandler(BaseFileHandler):
                     extraction_method=ExtractionMethod.PYMUPDF,
                     confidence=1.0,
                     processing_time_ms=processing_time,
+                    ocr_engines_used=["pymupdf"],
                 ),
             )
 
-        # Scanned PDF - use OCR
+        # Scanned PDF - use multi-OCR router
         images = self._pdf_to_images(doc)
         doc.close()
 
-        text, confidence = await surya_ocr.extract_from_images(images)
+        text, tables, confidence = await ocr_router.process_pdf_pages(images)
 
         processing_time = int((time.perf_counter() - start_time) * 1000)
 
+        # Build markdown with tables
+        markdown = self._build_markdown(text, tables)
+
         return ExtractedContent(
             text=text,
-            structured_data={"pages": page_count, "ocr_used": True},
-            markdown=self._text_to_markdown(text),
+            tables=tables if tables else None,
+            structured_data={
+                "pages": page_count,
+                "ocr_used": True,
+                "table_count": len(tables) if tables else 0,
+            },
+            markdown=markdown,
             metadata=ExtractionMetadata(
                 file_type=".pdf",
                 file_size=file_path.stat().st_size,
                 pages=page_count,
-                extraction_method=ExtractionMethod.SURYA_OCR,
+                extraction_method=ExtractionMethod.PADDLE_OCR,
                 confidence=confidence,
                 processing_time_ms=processing_time,
             ),
@@ -731,16 +859,15 @@ class PDFHandler(BaseFileHandler):
         return "\n\n".join(pages_text)
 
     def _has_sufficient_text(self, text: str, page_count: int) -> bool:
-        """Check if extracted text is sufficient (not a scanned PDF)."""
+        """Check if extracted text is sufficient."""
         if not text:
             return False
-        # Average at least MIN_TEXT_LENGTH chars per page
         return len(text) >= (self.MIN_TEXT_LENGTH * page_count)
 
     def _pdf_to_images(self, doc: fitz.Document, dpi: int = 200) -> list[Image.Image]:
-        """Convert PDF pages to PIL Images for OCR."""
+        """Convert PDF pages to PIL Images."""
         images = []
-        zoom = dpi / 72  # 72 is default PDF DPI
+        zoom = dpi / 72
         matrix = fitz.Matrix(zoom, zoom)
 
         for page in doc:
@@ -749,248 +876,28 @@ class PDFHandler(BaseFileHandler):
             images.append(img)
 
         return images
-```
 
----
-
-### Step 8: Image Handler
-
-**File: `app/services/file_processing/image_handler.py`**
-
-```python
-"""Handler for image files."""
-
-import time
-from pathlib import Path
-
-from PIL import Image
-
-from app.services.file_processing.base_handler import BaseFileHandler
-from app.services.file_processing.models import (
-    ExtractedContent,
-    ExtractionMetadata,
-    ExtractionMethod,
-)
-from app.services.file_processing.ocr.surya_ocr import surya_ocr
-
-
-class ImageHandler(BaseFileHandler):
-    """Handler for image files."""
-
-    SUPPORTED_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".webp"]
-    MAX_DIMENSION = 4096  # Resize if larger
-
-    async def extract(self, file_path: Path) -> ExtractedContent:
-        """Extract text from image using OCR."""
-        start_time = time.perf_counter()
-
-        # Resize if needed
-        self._resize_if_needed(file_path)
-
-        # Run OCR
-        result = await surya_ocr.extract_from_image(file_path)
-
-        processing_time = int((time.perf_counter() - start_time) * 1000)
-        result.metadata.processing_time_ms = processing_time
-
-        return result
-
-    def _resize_if_needed(self, file_path: Path) -> None:
-        """Resize image if it exceeds maximum dimensions."""
-        img = Image.open(file_path)
-
-        if img.width > self.MAX_DIMENSION or img.height > self.MAX_DIMENSION:
-            # Calculate new size maintaining aspect ratio
-            ratio = min(self.MAX_DIMENSION / img.width, self.MAX_DIMENSION / img.height)
-            new_size = (int(img.width * ratio), int(img.height * ratio))
-
-            img = img.resize(new_size, Image.Resampling.LANCZOS)
-            img.save(file_path)
-```
-
----
-
-### Step 9: File Router
-
-**File: `app/services/file_processing/router.py`**
-
-```python
-"""Routes files to appropriate handlers."""
-
-from pathlib import Path
-
-from app.services.file_processing.base_handler import BaseFileHandler
-from app.services.file_processing.text_handler import TextHandler, CSVHandler
-from app.services.file_processing.docx_handler import DocxHandler
-from app.services.file_processing.excel_handler import ExcelHandler
-from app.services.file_processing.pdf_handler import PDFHandler
-from app.services.file_processing.image_handler import ImageHandler
-from app.services.file_processing.models import ExtractedContent
-
-
-class FileRouter:
-    """Routes files to the appropriate handler."""
-
-    HANDLERS: list[type[BaseFileHandler]] = [
-        TextHandler,
-        CSVHandler,
-        DocxHandler,
-        ExcelHandler,
-        PDFHandler,
-        ImageHandler,
-    ]
-
-    SUPPORTED_EXTENSIONS: set[str] = set()
-
-    def __init__(self):
-        """Initialize handlers and build extension set."""
-        self._handlers = {cls: cls() for cls in self.HANDLERS}
-
-        for handler_cls in self.HANDLERS:
-            self.SUPPORTED_EXTENSIONS.update(handler_cls.SUPPORTED_EXTENSIONS)
-
-    def is_supported(self, file_path: Path) -> bool:
-        """Check if file type is supported."""
-        return file_path.suffix.lower() in self.SUPPORTED_EXTENSIONS
-
-    def get_handler(self, file_path: Path) -> BaseFileHandler | None:
-        """Get the appropriate handler for a file."""
-        for handler_cls, handler in self._handlers.items():
-            if handler_cls.can_handle(file_path):
-                return handler
-        return None
-
-    async def process(self, file_path: Path) -> ExtractedContent:
-        """Process a file and return extracted content."""
-        handler = self.get_handler(file_path)
-
-        if handler is None:
-            raise ValueError(f"Unsupported file type: {file_path.suffix}")
-
-        return await handler.extract(file_path)
-
-
-# Singleton instance
-file_router = FileRouter()
-```
-
----
-
-### Step 10: Upload Endpoint
-
-**File: `app/api/v1/endpoints/upload.py`**
-
-```python
-"""File upload endpoint."""
-
-import uuid
-from pathlib import Path
-from tempfile import NamedTemporaryFile
-
-import aiofiles
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
-
-from app.services.file_processing.router import file_router
-from app.services.file_processing.models import UploadResponse
-
-router = APIRouter()
-
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-
-
-@router.post(
-    "/upload",
-    response_model=UploadResponse,
-    status_code=status.HTTP_200_OK,
-    tags=["Upload"],
-    summary="Upload and process a file",
-)
-async def upload_file(file: UploadFile = File(...)):
-    """
-    Upload a file and extract its content.
-
-    Supported formats:
-    - Text: .txt, .md, .csv, .tex
-    - Documents: .docx
-    - Spreadsheets: .xlsx, .xls
-    - PDFs: .pdf (native and scanned)
-    - Images: .png, .jpg, .jpeg, .gif, .bmp, .tiff, .webp
-
-    Returns extracted text, structured data, and markdown representation.
-    """
-    # Validate file size
-    if file.size and file.size > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024 * 1024)}MB",
-        )
-
-    # Get file extension
-    original_filename = file.filename or "unknown"
-    suffix = Path(original_filename).suffix.lower()
-
-    # Check if supported
-    if suffix not in file_router.SUPPORTED_EXTENSIONS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported file type: {suffix}. Supported: {', '.join(sorted(file_router.SUPPORTED_EXTENSIONS))}",
-        )
-
-    # Save to temp file
-    temp_path = None
-    try:
-        with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-            temp_path = Path(temp_file.name)
-
-            # Write uploaded content
-            content = await file.read()
-            async with aiofiles.open(temp_path, "wb") as f:
-                await f.write(content)
-
-        # Process file
-        extraction = await file_router.process(temp_path)
-
-        # Generate file ID
-        file_id = str(uuid.uuid4())
-
-        return UploadResponse(
-            file_id=file_id,
-            filename=original_filename,
-            extraction=extraction,
-        )
-
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Failed to process file: {str(e)}",
-        )
-    finally:
-        # Clean up temp file
-        if temp_path and temp_path.exists():
-            temp_path.unlink()
-```
-
----
-
-### Step 11: Register Router
-
-**Add to `app/api/v1/router.py`:**
-
-```python
-from app.api.v1.endpoints import auth, chat, health, users, upload
-
-# ... existing routers ...
-
-api_router.include_router(
-    upload.router,
-    prefix="/upload",
-    tags=["Upload"],
-)
+    def _build_markdown(self, text: str, tables: list) -> str:
+        """Build markdown with extracted tables."""
+        parts = [self._text_to_markdown(text)]
+
+        if tables:
+            parts.append("\n## Extracted Tables\n")
+            for i, table in enumerate(tables):
+                parts.append(f"### Table {i + 1}")
+                parts.append(self._table_to_markdown(table))
+
+        return "\n\n".join(parts)
+
+    def _table_to_markdown(self, table) -> str:
+        """Convert table to markdown."""
+        lines = []
+        lines.append("| " + " | ".join(table.headers) + " |")
+        lines.append("| " + " | ".join(["---"] * len(table.headers)) + " |")
+        for row in table.rows:
+            padded = row + [""] * (len(table.headers) - len(row))
+            lines.append("| " + " | ".join(padded) + " |")
+        return "\n".join(lines)
 ```
 
 ---
@@ -1009,19 +916,24 @@ curl -X POST "http://localhost:8000/api/v1/upload" \
 # Test Excel
 curl -X POST "http://localhost:8000/api/v1/upload" \
   -F "file=@data.xlsx"
+
+# Test image with tables
+curl -X POST "http://localhost:8000/api/v1/upload" \
+  -F "file=@table.png"
 ```
 
 ---
 
 ## Summary
 
-| Component | Status |
-|-----------|--------|
-| Text handler | Ready |
-| DOCX handler | Ready |
-| Excel handler | Ready |
-| PDF handler | Ready |
-| Image handler | Ready |
-| Surya OCR | Ready |
-| Upload endpoint | Ready |
-| **Total API cost** | **$0.00** |
+| Component | OCR Engine | Cost |
+|-----------|-----------|------|
+| Text files | Direct read | **$0.00** |
+| DOCX | python-docx | **$0.00** |
+| Excel | openpyxl | **$0.00** |
+| PDF (native) | PyMuPDF | **$0.00** |
+| PDF (scanned - tables) | PaddleOCR | **$0.00** |
+| PDF (scanned - general) | Surya OCR | **$0.00** |
+| Images (tables) | PaddleOCR | **$0.00** |
+| Images (documents) | Surya OCR | **$0.00** |
+| **Total API cost** | | **$0.00** |

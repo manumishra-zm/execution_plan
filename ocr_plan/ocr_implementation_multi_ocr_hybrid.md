@@ -1278,13 +1278,17 @@ cost_tracker = CostTracker()
 
 ---
 
-## Comparison: All Three Approaches
+## Comparison: All Four Approaches
 
-| Aspect | Fully Local | Hybrid | Multi-OCR Hybrid |
-|--------|-------------|--------|------------------|
-| Cost | $0 | ~$0.50-2/mo | ~$1-2/mo |
-| Table accuracy | Good | Good | **Excellent** |
-| Graph support | No | Yes | Yes |
-| Complexity | Low | Medium | **High** |
-| Docker size | ~800MB | ~900MB | ~1.5GB |
-| Best for | Privacy-first | Balanced | **Maximum accuracy** |
+| Aspect | Fully Local | Hybrid | Multi-OCR | CASCADE_AUTO |
+|--------|-------------|--------|-----------|--------------|
+| Cost | $0 | ~$0.50-2/mo | ~$1-2/mo | **Optimized** |
+| Local Engines | PaddleOCR + Surya | PaddleOCR + Surya | PaddleOCR + Surya | All |
+| Table accuracy | Good | Good | Excellent | **Best available** |
+| Graph support | No | Yes | Yes | Yes |
+| Gemini fallback | No | Yes | Yes | **Auto** |
+| Complexity | Low | Medium | High | **Hidden** |
+| Docker size | ~1.2GB | ~1.3GB | ~1.5GB | ~1.5GB |
+| Best for | Privacy-first | Balanced | Max accuracy | **Production** |
+
+**Note:** CASCADE_AUTO is the recommended approach - it automatically cascades through FULLY_LOCAL -> HYBRID -> MULTI_OCR based on confidence levels.

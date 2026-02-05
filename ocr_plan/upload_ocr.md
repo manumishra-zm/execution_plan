@@ -27,16 +27,16 @@
 
 | Component | Status | Location |
 |-----------|--------|----------|
-| File Processing Service | ✅ Implemented | `app/services/file_processing/` |
-| OCR Router (CASCADE_AUTO) | ✅ Implemented | `app/services/file_processing/ocr/ocr_router.py` |
-| PaddleOCR Integration | ✅ Implemented | `app/services/file_processing/ocr/paddle_ocr.py` |
-| Surya OCR Integration | ✅ Implemented | `app/services/file_processing/ocr/surya_ocr.py` |
-| Gemini Vision Integration | ✅ Implemented | `app/services/file_processing/ocr/gemini_vision.py` |
-| Extraction Pipeline | ✅ Implemented | `app/services/file_processing/ocr/extraction_pipeline.py` |
-| Document Structurer | ✅ Implemented | `app/services/file_processing/ocr/document_structurer.py` |
-| Markdown Converter | ✅ Implemented | `app/services/file_processing/ocr/markdown_converter.py` |
-| Bounding Box Support | ✅ Implemented | All OCR engines + handlers |
-| Multi-page PDF Support | ✅ Implemented | Per-page layouts with bounding boxes |
+| File Processing Service | Implemented | `app/services/file_processing/` |
+| OCR Router (CASCADE_AUTO) | Implemented | `app/services/file_processing/ocr/ocr_router.py` |
+| PaddleOCR Integration | Implemented | `app/services/file_processing/ocr/paddle_ocr.py` |
+| Surya OCR Integration | Implemented | `app/services/file_processing/ocr/surya_ocr.py` |
+| Gemini Vision Integration | Implemented | `app/services/file_processing/ocr/gemini_vision.py` |
+| Extraction Pipeline | Implemented | `app/services/file_processing/ocr/extraction_pipeline.py` |
+| Document Structurer | Implemented | `app/services/file_processing/ocr/document_structurer.py` |
+| Markdown Converter | Implemented | `app/services/file_processing/ocr/markdown_converter.py` |
+| Bounding Box Support | Implemented | All OCR engines + handlers |
+| Multi-page PDF Support | Implemented | Per-page layouts with bounding boxes |
 
 ### File Handlers Implemented
 
@@ -46,8 +46,8 @@
 | `text_handler.py` (CSV) | `.csv` | CSV parser | N/A |
 | `docx_handler.py` | `.docx` | python-docx | N/A |
 | `excel_handler.py` | `.xlsx`, `.xls` | pandas/openpyxl | N/A |
-| `pdf_handler.py` | `.pdf` | PyMuPDF + OCR | ✅ Yes |
-| `image_handler.py` | Images | OCR engines | ✅ Yes |
+| `pdf_handler.py` | `.pdf` | PyMuPDF + OCR | Yes |
+| `image_handler.py` | Images | OCR engines | Yes |
 
 ---
 
@@ -156,7 +156,7 @@ flowchart TD
     B --> C{FULLY_LOCAL}
     C -->|2 attempts| D{Confidence ≥ 55%?}
 
-    D -->|Yes| E[✅ Return Result]
+    D -->|Yes| E[Return Result]
     D -->|No| F{HYBRID}
 
     F -->|2 attempts| G{Confidence ≥ 55%?}
@@ -176,9 +176,9 @@ flowchart TD
 
 | Approach | Engines Used | API Cost | When Used |
 |----------|-------------|----------|-----------|
-| **FULLY_LOCAL** | PaddleOCR → Surya | $0 | First attempt (90% success) |
-| **HYBRID** | Local + Gemini (graphs) | ~$0.01/graph | When local fails |
-| **MULTI_OCR** | All engines + verification | ~$0.001/page | Complex documents |
+| **FULLY_LOCAL** | PaddleOCR → Surya (no Gemini) | $0 | First attempt (90% success) |
+| **HYBRID** | Graphs: Gemini → Paddle → Surya; Other: Paddle → Surya → Gemini | ~$0.01/graph | When local fails |
+| **MULTI_OCR** | Best engine per content + Gemini verification | ~$0.001/page | Complex documents |
 
 ### Configuration
 
@@ -195,10 +195,17 @@ class OCRConfig:
     HIGH_CONFIDENCE: float = 0.90
     MEDIUM_CONFIDENCE: float = 0.75
     LOW_CONFIDENCE: float = 0.60
+    REJECT_THRESHOLD: float = 0.40             # Below this is rejected
+    MIN_USABLE_CONFIDENCE: float = 0.25        # Absolute minimum
 
     # Verification
     VERIFY_LOW_CONFIDENCE: bool = True
     VERIFICATION_THRESHOLD: float = 0.75
+
+    # System limits
+    MAX_IMAGE_SIZE: int = 4096                 # Max dimension in pixels
+    MAX_PDF_PAGES: int = 50                    # Max pages to process
+    MAX_FILE_SIZE: int = 50 * 1024 * 1024      # 50MB
 ```
 
 ### Cascade Execution Log
@@ -237,10 +244,10 @@ All OCR engines now return bounding box coordinates for every text element:
 
 | Engine | Bounding Box Source | Accuracy |
 |--------|-------------------|----------|
-| **PaddleOCR** | Native (PP-Structure) | ✅ High |
-| **Surya OCR** | Native (Detection Model) | ✅ High |
-| **Gemini Vision** | Estimated (line-based) | ⚠️ Approximate |
-| **PyMuPDF (Native PDF)** | Native (Text Spans) | ✅ Exact |
+| **PaddleOCR** | Native (PP-Structure) | High |
+| **Surya OCR** | Native (Detection Model) | High |
+| **Gemini Vision** | Estimated (line-based) | Approximate |
+| **PyMuPDF (Native PDF)** | Native (Text Spans) | Exact |
 
 ### Bounding Box Format
 
@@ -436,9 +443,9 @@ For multi-page documents, bounding boxes are organized per-page:
 | `.tex` | TextHandler | Direct read | No | N/A | ~5ms |
 | `.docx` | DocxHandler | python-docx | No | N/A | ~50ms |
 | `.xlsx`, `.xls` | ExcelHandler | pandas | No | N/A | ~100ms |
-| `.pdf` (native) | PDFHandler | PyMuPDF | No | ✅ Yes | ~100ms |
-| `.pdf` (scanned) | PDFHandler | OCR Router | Yes | ✅ Yes | ~2-5s/page |
-| Images | ImageHandler | Extraction Pipeline | Yes | ✅ Yes | ~1-3s |
+| `.pdf` (native) | PDFHandler | PyMuPDF | No | Yes | ~100ms |
+| `.pdf` (scanned) | PDFHandler | OCR Router | Yes | Yes | ~2-5s/page |
+| Images | ImageHandler | Extraction Pipeline | Yes | Yes | ~1-3s |
 
 ### PDF Processing Flow
 
@@ -492,53 +499,87 @@ flowchart TD
 
 ### PaddleOCR (Primary for Tables)
 
-**File:** `app/services/file_processing/ocr/paddle_ocr.py`
+**File:** `app/services/file_processing/ocr/paddle_ocr.py` (1,261 lines)
+
+**Configuration:**
+- USE_ANGLE_CLS: True (handle rotated text)
+- USE_GPU: False (CPU for compatibility)
+- ENABLE_MKLDNN: False (avoid OneDNN errors)
+- MAX_RETRIES: 2
 
 **Features:**
-- PP-Structure for layout analysis
-- Table structure recognition
-- Native bounding box coordinates
-- Multi-language support (80+ languages)
+- PP-Structure for layout analysis and table detection
+- Native 4-point bounding box coordinates
+- Multi-language support (20+ languages including Indian languages)
 - Lazy model loading (singleton pattern)
+- Image preprocessing with enhancement
+- Automatic size adjustment (upscale/downscale)
 
 **Output includes:**
 - Text with confidence scores
-- Table extraction (headers + rows)
-- Document layout with regions
-- Element classification
+- Table extraction (headers + rows) from HTML parsing
+- Document layout with grouped regions
+- Element type classification (AMOUNT, DATE, REFERENCE, etc.)
 
 ### Surya OCR (Primary for Documents)
 
-**File:** `app/services/file_processing/ocr/surya_ocr.py`
+**File:** `app/services/file_processing/ocr/surya_ocr.py` (577 lines)
+
+**Model Architecture:**
+- Detection Model: Detects text regions
+- Recognition Model: Recognizes text content
 
 **Features:**
-- State-of-the-art accuracy (2024)
+- State-of-the-art accuracy (v0.6.x)
 - Excellent layout detection
-- Native bounding boxes from detection model
-- 90+ language support
+- Native bounding boxes (converted from [x1,y1,x2,y2] to 4-point)
+- Multi-language support (50+ languages)
 - Good for handwritten text
+- Region-based grouping by type and proximity
 
 **Output includes:**
-- Text lines with confidence
+- Text lines with per-element confidence
 - Polygon-based bounding boxes
-- Language detection per element
+- Language detection from Unicode script
 - Element type classification
 
 ### Gemini Vision (Graphs & Fallback)
 
-**File:** `app/services/file_processing/ocr/gemini_vision.py`
+**File:** `app/services/file_processing/ocr/gemini_vision.py` (506 lines)
+
+**Model:** `gemini-2.0-flash` (fast model for cost efficiency)
 
 **Features:**
 - Visual understanding (interprets graphs/charts)
 - High accuracy on complex layouts
-- Estimated bounding boxes (line-based)
-- API-based (requires Google API key)
+- Estimated bounding boxes (line-based, marked as "estimated")
+- API-based (requires GOOGLE_API_KEY)
+- OCR result verification capability
+- Image type-aware prompting
 
 **Output includes:**
 - Interpreted text content
-- Chart/graph analysis
+- Chart/graph analysis with data extraction
 - Estimated document layout
-- Bounding boxes marked as `estimated: true`
+- Token usage tracking for cost monitoring
+
+### Document Structurer (LOCAL - No AI)
+
+**File:** `app/services/file_processing/ocr/document_structurer.py` (1,900 lines)
+
+- Rule-based structuring (100% local, no API calls)
+- Supports 20+ document types
+- Extracts fields, line items, taxes
+- Specialized extraction per document type
+
+### Markdown Converter (LOCAL - No AI)
+
+**File:** `app/services/file_processing/ocr/markdown_converter.py` (2,137 lines)
+
+- Template-based formatting (100% local, no API calls)
+- Document type-aware formatting
+- Invoice/bill formatting with sections
+- Table preservation
 
 ### Engine Selection Logic
 
@@ -1153,14 +1194,14 @@ sequenceDiagram
         Paddle-->>Local: Result (conf: 0.85)
 
         alt Confidence >= 0.55
-            Local-->>Router: ✅ Accept result
+            Local-->>Router: Accept result
         else Confidence < 0.55 or Error
             Local->>Surya: Fallback to Surya
             Surya-->>Local: Result
             alt Confidence >= 0.55
-                Local-->>Router: ✅ Accept result
+                Local-->>Router: Accept result
             else Still low confidence
-                Local-->>Router: ❌ Escalate
+                Local-->>Router: Escalate
             end
         end
     end
