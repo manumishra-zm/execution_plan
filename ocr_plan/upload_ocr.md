@@ -1,4 +1,4 @@
-# ERPSense — File Upload & OCR Implementation (IMPLEMENTED)
+# ERPSense — File Upload & OCR Implementation (PRODUCTION-GRADE)
 
 ## Table of Contents
 
@@ -16,8 +16,10 @@
 12. [API Design](#12-api-design)
 13. [Cost Estimation](#13-cost-estimation)
 14. [Python Libraries](#14-python-libraries)
-15. [Risks & Considerations](#15-risks--considerations)
-16. [Sources](#16-sources)
+15. [Production-Grade Fixes](#15-production-grade-fixes)
+16. [Processing Limits](#16-processing-limits)
+17. [Risks & Considerations](#17-risks--considerations)
+18. [Sources](#18-sources)
 
 ---
 
@@ -27,16 +29,20 @@
 
 | Component | Status | Location |
 |-----------|--------|----------|
-| File Processing Service | Implemented | `app/services/file_processing/` |
-| OCR Router (CASCADE_AUTO) | Implemented | `app/services/file_processing/ocr/ocr_router.py` |
-| PaddleOCR Integration | Implemented | `app/services/file_processing/ocr/paddle_ocr.py` |
-| Surya OCR Integration | Implemented | `app/services/file_processing/ocr/surya_ocr.py` |
-| Gemini Vision Integration | Implemented | `app/services/file_processing/ocr/gemini_vision.py` |
-| Extraction Pipeline | Implemented | `app/services/file_processing/ocr/extraction_pipeline.py` |
-| Document Structurer | Implemented | `app/services/file_processing/ocr/document_structurer.py` |
-| Markdown Converter | Implemented | `app/services/file_processing/ocr/markdown_converter.py` |
-| Bounding Box Support | Implemented | All OCR engines + handlers |
-| Multi-page PDF Support | Implemented | Per-page layouts with bounding boxes |
+| File Processing Service | ✅ Implemented | `app/services/file_processing/` |
+| OCR Router (CASCADE_AUTO) | ✅ Implemented | `app/services/file_processing/ocr/ocr_router.py` |
+| PaddleOCR Integration | ✅ Implemented | `app/services/file_processing/ocr/paddle_ocr.py` |
+| Surya OCR Integration | ✅ Implemented | `app/services/file_processing/ocr/surya_ocr.py` |
+| Gemini Vision Integration | ✅ Implemented | `app/services/file_processing/ocr/gemini_vision.py` |
+| Extraction Pipeline | ✅ Implemented | `app/services/file_processing/ocr/extraction_pipeline.py` |
+| Document Structurer | ✅ Implemented | `app/services/file_processing/ocr/document_structurer.py` |
+| Markdown Converter | ✅ Implemented | `app/services/file_processing/ocr/markdown_converter.py` |
+| Bounding Box Support | ✅ Implemented | All OCR engines + handlers |
+| Multi-page PDF Support | ✅ Implemented | Per-page layouts with bounding boxes |
+| **Production Utilities** | ✅ Implemented | `app/services/file_processing/ocr/production_utils.py` |
+| **Thread-Safe Singletons** | ✅ Implemented | All OCR engines |
+| **Timeout Handling** | ✅ Implemented | OCR Router |
+| **Rate Limiting** | ✅ Implemented | Gemini Vision |
 
 ### File Handlers Implemented
 
@@ -125,17 +131,18 @@ app/services/file_processing/
 │   └── image_handler.py         # Images → Extraction Pipeline
 ├── ocr/
 │   ├── __init__.py
-│   ├── ocr_router.py            # CASCADE_AUTO routing
-│   ├── paddle_ocr.py            # PaddleOCR + PP-Structure
-│   ├── surya_ocr.py             # Surya OCR
-│   ├── gemini_vision.py         # Gemini Vision API
+│   ├── ocr_router.py            # CASCADE_AUTO routing + TIMEOUT handling
+│   ├── paddle_ocr.py            # PaddleOCR + PP-Structure (thread-safe)
+│   ├── surya_ocr.py             # Surya OCR (thread-safe)
+│   ├── gemini_vision.py         # Gemini Vision API (rate-limited)
 │   ├── extraction_pipeline.py   # OCR → Structuring → Formatting
 │   ├── document_structurer.py   # JSON structure extraction
 │   ├── markdown_converter.py    # Formatted markdown output
 │   ├── table_detector.py        # Table detection
 │   ├── chart_extractor.py       # Chart/graph extraction
 │   ├── language_detector.py     # Language detection
-│   └── post_processor.py        # Text post-processing
+│   ├── post_processor.py        # Text post-processing
+│   └── production_utils.py      # ⭐ NEW: Production utilities
 └── classifiers/
     ├── image_classifier.py      # Image type classification
     └── erp_classifier.py        # ERP document classification
@@ -180,32 +187,45 @@ flowchart TD
 | **HYBRID** | Graphs: Gemini → Paddle → Surya; Other: Paddle → Surya → Gemini | ~$0.01/graph | When local fails |
 | **MULTI_OCR** | Best engine per content + Gemini verification | ~$0.001/page | Complex documents |
 
-### Configuration
+### Configuration (Production-Grade)
 
 ```python
 # In ocr_router.py
 @dataclass
 class OCRConfig:
-    # Cascade settings
-    CASCADE_APPROACH_RETRIES: int = 2          # Retries per approach
-    CASCADE_MIN_ACCEPTABLE_CONFIDENCE: float = 0.55  # Min to accept
-    CASCADE_RETRY_DELAY_MS: int = 200          # Delay between retries
+    """Production-grade defaults optimized for reliability and accuracy."""
 
     # Confidence thresholds
     HIGH_CONFIDENCE: float = 0.90
     MEDIUM_CONFIDENCE: float = 0.75
     LOW_CONFIDENCE: float = 0.60
-    REJECT_THRESHOLD: float = 0.40             # Below this is rejected
-    MIN_USABLE_CONFIDENCE: float = 0.25        # Absolute minimum
+    REJECT_THRESHOLD: float = 0.40
+    MIN_USABLE_CONFIDENCE: float = 0.25
+
+    # Retry settings for individual OCR engines
+    MAX_RETRIES: int = 2                       # 3 total attempts per engine
+    RETRY_DELAY_MS: int = 500                  # 500ms between retries
+    TIMEOUT_SECONDS: int = 120                 # ⭐ 2 minutes timeout per operation (ENFORCED)
 
     # Verification
     VERIFY_LOW_CONFIDENCE: bool = True
     VERIFICATION_THRESHOLD: float = 0.75
 
-    # System limits
-    MAX_IMAGE_SIZE: int = 4096                 # Max dimension in pixels
-    MAX_PDF_PAGES: int = 50                    # Max pages to process
-    MAX_FILE_SIZE: int = 50 * 1024 * 1024      # 50MB
+    # Processing limits - NO ARTIFICIAL LIMITS
+    MAX_IMAGE_SIZE: int = 8192                 # ⭐ 8K resolution support
+    MAX_FILE_SIZE_MB: int = 500                # 500MB max
+    MAX_PDF_PAGES: int = 0                     # 0 = No limit, process ALL pages
+
+    # CASCADE_AUTO specific settings
+    CASCADE_APPROACH_RETRIES: int = 2          # 2 retries per approach
+    CASCADE_MIN_ACCEPTABLE_CONFIDENCE: float = 0.55
+    CASCADE_RETRY_DELAY_MS: int = 1000         # 1 second between cascade retries
+
+    # Rate limit settings for Gemini API
+    RATE_LIMIT_INITIAL_DELAY: float = 2.0      # ⭐ 2 seconds initial (exponential backoff)
+    RATE_LIMIT_MAX_DELAY: float = 60.0         # 1 minute max
+    RATE_LIMIT_MULTIPLIER: float = 2.0         # Double each retry
+    RATE_LIMIT_MAX_RETRIES: int = 5            # Up to 5 rate limit retries
 ```
 
 ### Cascade Execution Log
@@ -506,6 +526,13 @@ flowchart TD
 - USE_GPU: False (CPU for compatibility)
 - ENABLE_MKLDNN: False (avoid OneDNN errors)
 - MAX_RETRIES: 2
+- ⭐ **Thread-safe singleton with double-checked locking**
+
+**Production Fixes Applied:**
+- ✅ Thread-safe singleton initialization with `threading.Lock()`
+- ✅ Image validation before processing
+- ✅ PIL Image cleanup after numpy conversion
+- ✅ `_loading` flag to prevent re-entrant loading
 
 **Features:**
 - PP-Structure for layout analysis and table detection
@@ -529,6 +556,12 @@ flowchart TD
 - Detection Model: Detects text regions
 - Recognition Model: Recognizes text content
 
+**Production Fixes Applied:**
+- ✅ Thread-safe singleton initialization with `threading.Lock()`
+- ✅ Error state tracking (`_load_error`)
+- ✅ `is_available()` method to check engine status
+- ✅ `reset()` method to clear error state and retry
+
 **Features:**
 - State-of-the-art accuracy (v0.6.x)
 - Excellent layout detection
@@ -548,6 +581,12 @@ flowchart TD
 **File:** `app/services/file_processing/ocr/gemini_vision.py` (506 lines)
 
 **Model:** `gemini-2.0-flash` (fast model for cost efficiency)
+
+**Production Fixes Applied:**
+- ✅ Thread-safe singleton initialization
+- ✅ Exponential backoff rate limiter with jitter
+- ✅ `_call_with_retry()` method for API calls
+- ✅ Configurable rate limit parameters
 
 **Features:**
 - Visual understanding (interprets graphs/charts)
@@ -820,7 +859,7 @@ classDiagram
     ExtractedContent --> ExtractionMetadata
 ```
 
-### Class Diagram - OCR Engines
+### Class Diagram - OCR Engines (with Production Fixes)
 
 ```mermaid
 classDiagram
@@ -834,6 +873,8 @@ classDiagram
         -_ocr: PaddleOCR
         -_structure: PPStructure
         -_loaded: bool
+        -_loading: bool
+        -_lock: Lock
         +extract_from_image(path) ExtractedContent
         +extract_text(path) tuple
         +extract_text_with_layout(path) tuple
@@ -851,9 +892,13 @@ classDiagram
         -_det_model: Model
         -_rec_model: Model
         -_loaded: bool
+        -_loading: bool
+        -_load_error: Exception
+        -_lock: Lock
         +extract_from_image(path, languages) ExtractedContent
         +extract_from_images(images, languages) tuple
         +is_available() bool
+        +reset() void
         -_load_models() void
         -_create_bbox_from_surya(bbox) BoundingBox
         -_classify_element_type(text) ElementType
@@ -864,11 +909,14 @@ classDiagram
     class GeminiVision {
         -_model: GenerativeModel
         -_loaded: bool
+        -_lock: Lock
+        -_rate_limiter: RateLimiter
         +extract_from_image(path, image_type) ExtractedContent
         +interpret_graph(path) ExtractedContent
         +verify_ocr_result(path, text) str
         +is_available() bool
         -_load_model() void
+        -_call_with_retry(func) Any
         -_build_prompt(image_type) str
         -_create_estimated_bbox(idx, total, w, h) BoundingBox
         -_parse_text_to_elements(text, w, h) list
@@ -885,6 +933,7 @@ classDiagram
         +get_available_engines() dict
         +get_metrics() dict
         -_smart_process(path) ExtractedContent
+        -_process_with_timeout(path) ExtractedContent
         -_process_cascade_auto(path, type, table) ExtractedContent
         -_process_fully_local(path, type, tables) ExtractedContent
         -_process_hybrid(path, type, tables) ExtractedContent
@@ -940,19 +989,21 @@ classDiagram
 
     class PDFHandler {
         +SUPPORTED_EXTENSIONS: [".pdf"]
-        +MAX_PAGES_FOR_OCR: int
+        +MAX_PAGES_FOR_OCR: None
+        +MAX_FILE_SIZE_MB: 500
         +extract(file_path) ExtractedContent
         -_extract_native_text(doc) str
         -_has_sufficient_text(text, pages) bool
         -_pdf_to_images(doc, pages) list
         -_extract_text_with_positions(doc) dict
         -_build_markdown(text, tables) str
+        -_check_password_protected(doc) bool
     }
 
     class ImageHandler {
         +SUPPORTED_EXTENSIONS: list
-        +MAX_DIMENSION: int
-        +MAX_FILE_SIZE: int
+        +MAX_DIMENSION: 8192
+        +MAX_FILE_SIZE: 500MB
         +extract(file_path) ExtractedContent
         -_resize_if_needed(file_path) bool
     }
@@ -998,6 +1049,7 @@ flowchart TB
             Paddle[PaddleOCR]
             Surya[Surya OCR]
             Gemini[Gemini Vision]
+            ProdUtils[Production Utils]
         end
 
         subgraph Processing["Processing Pipeline"]
@@ -1034,6 +1086,7 @@ flowchart TB
     OCRRouter --> Paddle
     OCRRouter --> Surya
     OCRRouter --> Gemini
+    OCRRouter --> ProdUtils
 
     Gemini --> GeminiAPI
 
@@ -1552,7 +1605,7 @@ flowchart TD
     end
 
     subgraph Validation["Client Validation"]
-        E --> F{Size < 50MB?}
+        E --> F{Size < 500MB?}
         F -->|No| G[Show Error]
         F -->|Yes| H{Type Allowed?}
         H -->|No| G
@@ -1779,18 +1832,244 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ---
 
-## 15. Risks & Considerations
+## 15. Production-Grade Fixes
+
+### New File: `production_utils.py`
+
+**Location:** `app/services/file_processing/ocr/production_utils.py`
+
+This module contains all production utilities for robust OCR processing.
+
+### Critical Issues Fixed (5)
+
+| Issue | Severity | Fix Applied | File |
+|-------|----------|-------------|------|
+| Thread-safe singleton initialization | Critical | Double-checked locking with `threading.Lock()` | All OCR engines |
+| Timeout mechanism | Critical | `with_timeout()` async wrapper | ocr_router.py |
+| PDF password protection | Critical | `check_pdf_encrypted()` before processing | pdf_handler.py |
+| PIL Image cleanup | Critical | `safe_image_open()` context manager | paddle_ocr.py, pdf_handler.py |
+| File handle cleanup | Critical | `try-finally` blocks for PDF documents | pdf_handler.py |
+
+### High Severity Issues Fixed (7)
+
+| Issue | Severity | Fix Applied | File |
+|-------|----------|-------------|------|
+| Gemini rate limiting | High | Exponential backoff with jitter | gemini_vision.py |
+| Image validation | High | `ImageValidator` class | paddle_ocr.py |
+| Model loading errors | High | Error state tracking (`_load_error`) | surya_ocr.py |
+| Re-entrant loading prevention | High | `_loading` flag | All OCR engines |
+| Memory management | High | Garbage collection on memory errors | All OCR engines |
+| Resource cleanup on shutdown | High | `atexit` registration | production_utils.py |
+| Corrupted PDF handling | High | Proper error messages | pdf_handler.py |
+
+### Production Utilities Classes
+
+```python
+# Thread-Safe Singleton
+class ThreadSafeSingleton:
+    """
+    Thread-safe singleton initialization with proper locking.
+    Used by all OCR engines to ensure models load only once.
+    """
+    _lock: threading.Lock
+    _instance: Any = None
+    _loaded: bool = False
+    _loading: bool = False
+    _load_error: Exception | None = None
+
+# Temporary File Manager
+class TempFileManager:
+    """
+    Safe temporary file handling with guaranteed cleanup.
+    Tracks all temp files and cleans up on context exit.
+    """
+    def __enter__(self) -> Path
+    def __exit__(self, *args)
+    def cleanup_all()
+
+# Image Validator
+class ImageValidator:
+    """
+    Validates images before processing.
+    Checks: file exists, size limits, format, corruption.
+    """
+    MAX_FILE_SIZE_MB: int = 500
+    MAX_DIMENSION: int = 8192
+    MAX_PIXELS: int = 200_000_000
+    SUPPORTED_FORMATS: set = {"JPEG", "PNG", "GIF", "BMP", "TIFF", "WEBP"}
+
+    @staticmethod
+    def validate(path: Path) -> tuple[bool, str]
+
+# Rate Limiter
+@dataclass
+class RateLimitConfig:
+    initial_delay: float = 2.0
+    max_delay: float = 60.0
+    multiplier: float = 2.0
+    max_retries: int = 5
+
+class RateLimiter:
+    """
+    Exponential backoff with jitter for API rate limiting.
+    """
+    def wait_if_needed()
+    def record_success()
+    def record_failure()
+    def get_delay() -> float
+
+# Async Timeout
+async def with_timeout(
+    coro: Coroutine,
+    timeout_seconds: float,
+    operation_name: str = "operation"
+) -> Any:
+    """
+    Wraps async operations with configurable timeout.
+    Raises TimeoutError with descriptive message.
+    """
+
+# Safe Image Context Manager
+@contextmanager
+def safe_image_open(path: Path) -> Image:
+    """
+    Context manager for PIL Image with guaranteed cleanup.
+    Prevents memory leaks from unclosed image handles.
+    """
+```
+
+### Thread-Safe Singleton Pattern (Applied to All OCR Engines)
+
+```python
+class PaddleOCREngine:
+    _lock = threading.Lock()
+    _ocr: PaddleOCR | None = None
+    _loaded: bool = False
+    _loading: bool = False
+
+    def _load_models(self):
+        # Double-checked locking
+        if self._loaded:
+            return
+
+        with self._lock:
+            if self._loaded:  # Re-check inside lock
+                return
+
+            if self._loading:
+                raise RuntimeError("Model already loading")
+
+            self._loading = True
+            try:
+                # Load models...
+                self._ocr = PaddleOCR(...)
+                self._loaded = True
+            finally:
+                self._loading = False
+```
+
+### Timeout Handling in OCR Router
+
+```python
+class OCRRouter:
+    async def process(self, path: Path) -> ExtractedContent:
+        return await with_timeout(
+            self._process_internal(path),
+            timeout_seconds=self.config.TIMEOUT_SECONDS,
+            operation_name=f"OCR processing for {path.name}"
+        )
+```
+
+### Rate Limiter in Gemini Vision
+
+```python
+class GeminiVision:
+    def __init__(self):
+        self._rate_limiter = RateLimiter(RateLimitConfig(
+            initial_delay=2.0,
+            max_delay=60.0,
+            multiplier=2.0,
+            max_retries=5
+        ))
+
+    async def _call_with_retry(self, func: Callable) -> Any:
+        for attempt in range(self._rate_limiter.config.max_retries):
+            try:
+                result = await func()
+                self._rate_limiter.record_success()
+                return result
+            except ResourceExhausted:
+                self._rate_limiter.record_failure()
+                await asyncio.sleep(self._rate_limiter.get_delay())
+        raise Exception("Max retries exceeded")
+```
+
+---
+
+## 16. Processing Limits
+
+### Updated Limits (No Restrictions)
+
+| Setting | Before | After |
+|---------|--------|-------|
+| **PDF Max Pages** | 50 pages | **Unlimited (all pages)** |
+| **PDF Max Size** | 100 MB | **500 MB** |
+| **Image Max Size** | 50 MB | **500 MB** |
+| **Image Max Dimension** | 4096 px | **8192 px (8K)** |
+| **Image Max Pixels** | 100 MP | **200 MP** |
+| **File Size (Router)** | 50 MB | **500 MB** |
+| **Timeout** | None | **120 seconds** |
+
+### Configuration Summary
+
+```python
+# In pdf_handler.py
+MAX_PAGES_FOR_OCR = None  # No page limit - process ALL pages
+MAX_FILE_SIZE_MB = 500    # 500MB PDFs supported
+
+# In ocr_router.py
+MAX_PDF_PAGES = 0         # 0 means no limit
+MAX_FILE_SIZE_MB = 500
+TIMEOUT_SECONDS = 120     # 2 minute timeout
+
+# In production_utils.py (ImageValidator)
+MAX_FILE_SIZE_MB = 500
+MAX_DIMENSION = 8192      # Supports 8K scans
+MAX_PIXELS = 200_000_000  # 200MP for high-res documents
+```
+
+### Processing Time Estimates
+
+| Document Size | Estimated Time | Notes |
+|--------------|----------------|-------|
+| 1-10 pages | 3-30 seconds | Fast, single cascade |
+| 10-50 pages | 30 seconds - 2.5 minutes | Normal processing |
+| 50-100 pages | 2.5-5 minutes | May need timeout extension |
+| 100+ pages | 5+ minutes | Consider chunking |
+
+For a 100-page scanned PDF:
+```
+100 pages × ~3 seconds/page = ~5 minutes
+With cascade retries = up to ~15 minutes worst case
+```
+
+---
+
+## 17. Risks & Considerations
 
 ### Technical Risks
 
 | Risk | Mitigation |
 |------|------------|
-| Large files timeout | 50MB limit, suggest splitting |
+| Large files timeout | 120s timeout, suggest splitting for 100+ pages |
 | Scanned PDF detection fails | Default to OCR if <50 chars/page |
 | OCR confidence too low | CASCADE_AUTO with Gemini fallback |
-| Model loading slow | Lazy load, singleton pattern |
-| Gemini rate limits | Queue excess, use free tier |
-| Password-protected PDFs | Detect and return error |
+| Model loading slow | Lazy load, thread-safe singleton pattern |
+| Gemini rate limits | Exponential backoff with jitter |
+| Password-protected PDFs | Detect and return user-friendly error |
+| Corrupted files | Validate before processing, proper error messages |
+| Memory exhaustion | Image validation, cleanup on errors |
+| Thread safety issues | Double-checked locking pattern |
 
 ### Security
 
@@ -1799,10 +2078,11 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 - **Sanitize extracted content** before prompt injection
 - **Temporary storage only** — delete files after extraction
 - **No file paths in responses** — only UUIDs
+- **Password-protected PDF detection** — fail fast with clear error
 
 ---
 
-## 16. Sources
+## 18. Sources
 
 ### OCR Libraries
 - [Surya OCR — GitHub](https://github.com/VikParuchuri/surya)
@@ -1875,3 +2155,69 @@ result = await extract_document(Path("invoice.jpg"))
 json_data = await extract_to_json(Path("invoice.jpg"))
 markdown = await extract_to_markdown(Path("invoice.jpg"))
 ```
+
+### Production Utils Quick Start
+
+```python
+from app.services.file_processing.ocr.production_utils import (
+    with_timeout,
+    safe_image_open,
+    ImageValidator,
+    RateLimiter,
+    RateLimitConfig,
+    check_pdf_encrypted
+)
+
+# Validate image before processing
+is_valid, error = ImageValidator.validate(image_path)
+if not is_valid:
+    raise ValueError(error)
+
+# Safe image handling
+with safe_image_open(image_path) as img:
+    # Process image - automatically closes on exit
+    pass
+
+# Timeout wrapper
+result = await with_timeout(
+    ocr_function(),
+    timeout_seconds=120,
+    operation_name="OCR extraction"
+)
+
+# Check for password-protected PDF
+if check_pdf_encrypted(pdf_path):
+    raise ValueError("Password-protected PDFs not supported")
+
+# Rate limiting for API calls
+limiter = RateLimiter(RateLimitConfig(initial_delay=2.0))
+await asyncio.sleep(limiter.get_delay())
+```
+
+---
+
+## Changelog
+
+### 2026-02-05 — Production-Grade Update
+
+**New:**
+- Added `production_utils.py` with thread-safe utilities
+- Thread-safe singleton pattern for all OCR engines
+- Timeout handling (120s default) for all OCR operations
+- Exponential backoff rate limiter for Gemini API
+- Image validation before processing
+- PDF password protection detection
+
+**Changed:**
+- Removed all artificial limits (pages, file size)
+- PDF: Unlimited pages, 500MB max
+- Images: 8K resolution (8192px), 500MB max, 200MP
+- Rate limit: 2s initial → 60s max (exponential backoff)
+- Timeout: 120 seconds (enforced)
+
+**Fixed:**
+- Thread safety in all OCR engines
+- PIL Image memory leaks
+- PDF file handle cleanup
+- Re-entrant model loading prevention
+- Gemini rate limit handling (was fixed 5s, now exponential)
