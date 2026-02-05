@@ -29,20 +29,20 @@
 
 | Component | Status | Location |
 |-----------|--------|----------|
-| File Processing Service | ✅ Implemented | `app/services/file_processing/` |
-| OCR Router (CASCADE_AUTO) | ✅ Implemented | `app/services/file_processing/ocr/ocr_router.py` |
-| PaddleOCR Integration | ✅ Implemented | `app/services/file_processing/ocr/paddle_ocr.py` |
-| Surya OCR Integration | ✅ Implemented | `app/services/file_processing/ocr/surya_ocr.py` |
-| Gemini Vision Integration | ✅ Implemented | `app/services/file_processing/ocr/gemini_vision.py` |
-| Extraction Pipeline | ✅ Implemented | `app/services/file_processing/ocr/extraction_pipeline.py` |
-| Document Structurer | ✅ Implemented | `app/services/file_processing/ocr/document_structurer.py` |
-| Markdown Converter | ✅ Implemented | `app/services/file_processing/ocr/markdown_converter.py` |
-| Bounding Box Support | ✅ Implemented | All OCR engines + handlers |
-| Multi-page PDF Support | ✅ Implemented | Per-page layouts with bounding boxes |
-| **Production Utilities** | ✅ Implemented | `app/services/file_processing/ocr/production_utils.py` |
-| **Thread-Safe Singletons** | ✅ Implemented | All OCR engines |
-| **Timeout Handling** | ✅ Implemented | OCR Router |
-| **Rate Limiting** | ✅ Implemented | Gemini Vision |
+| File Processing Service | Implemented | `app/services/file_processing/` |
+| OCR Router (CASCADE_AUTO) | Implemented | `app/services/file_processing/ocr/ocr_router.py` |
+| PaddleOCR Integration | Implemented | `app/services/file_processing/ocr/paddle_ocr.py` |
+| Surya OCR Integration | Implemented | `app/services/file_processing/ocr/surya_ocr.py` |
+| Gemini Vision Integration | Implemented | `app/services/file_processing/ocr/gemini_vision.py` |
+| Extraction Pipeline | Implemented | `app/services/file_processing/ocr/extraction_pipeline.py` |
+| Document Structurer | Implemented | `app/services/file_processing/ocr/document_structurer.py` |
+| Markdown Converter | Implemented | `app/services/file_processing/ocr/markdown_converter.py` |
+| Bounding Box Support | Implemented | All OCR engines + handlers |
+| Multi-page PDF Support | Implemented | Per-page layouts with bounding boxes |
+| **Production Utilities** | Implemented | `app/services/file_processing/ocr/production_utils.py` |
+| **Thread-Safe Singletons** | Implemented | All OCR engines |
+| **Timeout Handling** | Implemented | OCR Router |
+| **Rate Limiting** | Implemented | Gemini Vision |
 
 ### File Handlers Implemented
 
@@ -142,7 +142,7 @@ app/services/file_processing/
 │   ├── chart_extractor.py       # Chart/graph extraction
 │   ├── language_detector.py     # Language detection
 │   ├── post_processor.py        # Text post-processing
-│   └── production_utils.py      # ⭐ NEW: Production utilities
+│   └── production_utils.py      # NEW: NEW: Production utilities
 └── classifiers/
     ├── image_classifier.py      # Image type classification
     └── erp_classifier.py        # ERP document classification
@@ -205,14 +205,14 @@ class OCRConfig:
     # Retry settings for individual OCR engines
     MAX_RETRIES: int = 2                       # 3 total attempts per engine
     RETRY_DELAY_MS: int = 500                  # 500ms between retries
-    TIMEOUT_SECONDS: int = 120                 # ⭐ 2 minutes timeout per operation (ENFORCED)
+    TIMEOUT_SECONDS: int = 120                 # NEW: 2 minutes timeout per operation (ENFORCED)
 
     # Verification
     VERIFY_LOW_CONFIDENCE: bool = True
     VERIFICATION_THRESHOLD: float = 0.75
 
     # Processing limits - NO ARTIFICIAL LIMITS
-    MAX_IMAGE_SIZE: int = 8192                 # ⭐ 8K resolution support
+    MAX_IMAGE_SIZE: int = 8192                 # NEW: 8K resolution support
     MAX_FILE_SIZE_MB: int = 500                # 500MB max
     MAX_PDF_PAGES: int = 0                     # 0 = No limit, process ALL pages
 
@@ -222,7 +222,7 @@ class OCRConfig:
     CASCADE_RETRY_DELAY_MS: int = 1000         # 1 second between cascade retries
 
     # Rate limit settings for Gemini API
-    RATE_LIMIT_INITIAL_DELAY: float = 2.0      # ⭐ 2 seconds initial (exponential backoff)
+    RATE_LIMIT_INITIAL_DELAY: float = 2.0      # NEW: 2 seconds initial (exponential backoff)
     RATE_LIMIT_MAX_DELAY: float = 60.0         # 1 minute max
     RATE_LIMIT_MULTIPLIER: float = 2.0         # Double each retry
     RATE_LIMIT_MAX_RETRIES: int = 5            # Up to 5 rate limit retries
@@ -526,7 +526,7 @@ flowchart TD
 - USE_GPU: False (CPU for compatibility)
 - ENABLE_MKLDNN: False (avoid OneDNN errors)
 - MAX_RETRIES: 2
-- ⭐ **Thread-safe singleton with double-checked locking**
+- NEW: **Thread-safe singleton with double-checked locking**
 
 **Production Fixes Applied:**
 - ✅ Thread-safe singleton initialization with `threading.Lock()`
