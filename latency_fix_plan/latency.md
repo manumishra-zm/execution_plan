@@ -118,10 +118,10 @@ graph TB
     ERPNextAgent -.->|Lazy Model| Gemini
     Tools -.->|No Pre-check| ERPNext
 
-    style Redis fill:#ffcccc
-    style Postgres fill:#ffcccc
-    style Gemini fill:#ffcccc
-    style ERPNext fill:#ffcccc
+    style Redis fill:#ff6b6b
+    style Postgres fill:#ff6b6b
+    style Gemini fill:#ff6b6b
+    style ERPNext fill:#ff6b6b
 ```
 
 ### Component Responsibilities
@@ -150,7 +150,7 @@ graph LR
     D --> E[Request Tracing]
     E --> F[Root Causes<br/>Identified]
 
-    style F fill:#90EE90
+    style F fill:#51cf66
 ```
 
 1. **Symptom Analysis**: Observed consistent 2-5s delay on first requests
@@ -592,9 +592,9 @@ graph TB
         Health --> Warmup
     end
 
-    style Warmup fill:#90EE90
-    style Cache fill:#87CEEB
-    style Main fill:#FFD700
+    style Warmup fill:#51cf66
+    style Cache fill:#339af0
+    style Main fill:#ffd43b
 ```
 
 ### Phase 1: Warmup Module
@@ -713,8 +713,8 @@ graph LR
         Cache --> Process2[Process]
     end
 
-    style Req1 fill:#ffcccc
-    style Req2 fill:#90EE90
+    style Req1 fill:#ff6b6b
+    style Req2 fill:#51cf66
 ```
 
 ---
@@ -779,8 +779,8 @@ graph TD
 
     Return200 --> ShowStatus[Show Services:<br/>Redis: true<br/>DB: true<br/>Gemini: true<br/>ERPNext: true]
 
-    style Return200 fill:#90EE90
-    style Return503 fill:#ffcccc
+    style Return200 fill:#51cf66
+    style Return503 fill:#ff6b6b
 ```
 
 **Changes**:
@@ -830,12 +830,12 @@ graph LR
 
     B2 -.->|28.5x faster| A2
 
-    style B1 fill:#ffcccc
-    style B2 fill:#ffcccc
-    style B3 fill:#ffcccc
-    style A1 fill:#90EE90
-    style A2 fill:#90EE90
-    style A3 fill:#90EE90
+    style B1 fill:#ff6b6b
+    style B2 fill:#ff6b6b
+    style B3 fill:#ff6b6b
+    style A1 fill:#51cf66
+    style A2 fill:#51cf66
+    style A3 fill:#51cf66
 ```
 
 | Metric | Before | After | Improvement |
@@ -922,12 +922,12 @@ graph LR
     B2 -.->|75% reduction| A2
     B3 -.->|92% reduction| A3
 
-    style B1 fill:#ffcccc
-    style B2 fill:#ffcccc
-    style B3 fill:#ffcccc
-    style A1 fill:#90EE90
-    style A2 fill:#90EE90
-    style A3 fill:#90EE90
+    style B1 fill:#ff6b6b
+    style B2 fill:#ff6b6b
+    style B3 fill:#ff6b6b
+    style A1 fill:#51cf66
+    style A2 fill:#51cf66
+    style A3 fill:#51cf66
 ```
 
 | Error Type | Before | After | Reduction |
@@ -966,11 +966,11 @@ graph TD
     Health --> H1[Readiness Probe]
     Health --> H2[Liveness Probe]
 
-    style Tests fill:#FFD700
-    style Manual fill:#87CEEB
-    style Bench fill:#87CEEB
-    style Load fill:#87CEEB
-    style Health fill:#87CEEB
+    style Tests fill:#ffd43b
+    style Manual fill:#339af0
+    style Bench fill:#339af0
+    style Load fill:#339af0
+    style Health fill:#339af0
 ```
 
 ### Manual Testing Steps
@@ -1196,12 +1196,12 @@ graph LR
     B2 -.->|3.7x faster| A2
     B3 -.->|35.6x faster| A3
 
-    style B1 fill:#ffcccc
-    style B2 fill:#ffcccc
-    style B3 fill:#ffcccc
-    style A1 fill:#90EE90
-    style A2 fill:#90EE90
-    style A3 fill:#90EE90
+    style B1 fill:#ff6b6b
+    style B2 fill:#ff6b6b
+    style B3 fill:#ff6b6b
+    style A1 fill:#51cf66
+    style A2 fill:#51cf66
+    style A3 fill:#51cf66
 ```
 
 #### Results Before Optimization
@@ -1288,8 +1288,8 @@ graph TB
     Logs --> Grafana
     Grafana --> Alerts
 
-    style App fill:#87CEEB
-    style Grafana fill:#90EE90
+    style App fill:#339af0
+    style Grafana fill:#51cf66
 ```
 
 ### New Metrics to Monitor
@@ -1437,13 +1437,13 @@ graph TB
     Dashboard --> P5[Panel 5:<br/>Latency Percentiles<br/>Line Graph]
     Dashboard --> P6[Panel 6:<br/>Throughput<br/>Line Graph]
 
-    style Dashboard fill:#FFD700
-    style P1 fill:#87CEEB
-    style P2 fill:#87CEEB
-    style P3 fill:#87CEEB
-    style P4 fill:#87CEEB
-    style P5 fill:#87CEEB
-    style P6 fill:#87CEEB
+    style Dashboard fill:#ffd43b
+    style P1 fill:#339af0
+    style P2 fill:#339af0
+    style P3 fill:#339af0
+    style P4 fill:#339af0
+    style P5 fill:#339af0
+    style P6 fill:#339af0
 ```
 
 1. **Warmup Status**
@@ -1511,9 +1511,9 @@ graph LR
     Prometheus --> Circuit[Circuit Breaker]
     Circuit --> Pooling[Connection Pooling]
 
-    style Current fill:#90EE90
-    style Deploy fill:#FFD700
-    style Monitor fill:#87CEEB
+    style Current fill:#51cf66
+    style Deploy fill:#ffd43b
+    style Monitor fill:#339af0
 ```
 
 1. **Deploy to staging** and verify improvements
