@@ -11,7 +11,7 @@
 Design an intelligent context management system that efficiently handles multiple file uploads across chat sessions while **reducing token usage by 60-70%** and maintaining contextual accuracy.
 
 ### Key Outcomes
-- **Token Reduction**: ~15,000 → ~5,000 tokens per request (with 10 docs)
+- **Token Reduction**: ~15,000 to ~5,000 tokens per request (with 10 docs)
 - **Cost Savings**: ~70% reduction in LLM API costs
 - **Latency**: Context building < 500ms
 - **Accuracy**: >90% relevant document retrieval
@@ -37,8 +37,9 @@ Design an intelligent context management system that efficiently handles multipl
 ### Current Architecture Flow
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#fff', 'primaryBorderColor': '#2d3748', 'lineColor': '#718096', 'secondaryColor': '#2d3748', 'tertiaryColor': '#1a202c', 'background': '#1a202c', 'mainBkg': '#2d3748', 'textColor': '#e2e8f0'}}}%%
 flowchart LR
-    subgraph Current["Current Flow (Inefficient)"]
+    subgraph Current["Current Flow - Inefficient"]
         A[User Upload] --> B[OCR Process]
         B --> C[Store JSON/MD]
         C --> D[User Query]
@@ -47,38 +48,42 @@ flowchart LR
         F --> G[Response]
     end
 
-    style E fill:#ff6b6b,color:#fff
-    style Current fill:#fff5f5
+    style E fill:#e53e3e,color:#fff,stroke:#c53030
+    style Current fill:#2d3748,color:#e2e8f0
 ```
 
 ### Problem Visualization
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#fff', 'primaryBorderColor': '#2d3748', 'lineColor': '#718096', 'secondaryColor': '#2d3748', 'tertiaryColor': '#1a202c'}}}%%
 graph TD
     subgraph msg1["Message 1"]
-        F1[File 1<br/>1500 tokens]
-        F2[File 2<br/>1200 tokens]
-        F3[File 3<br/>1800 tokens]
+        F1["File 1 - 1500 tokens"]
+        F2["File 2 - 1200 tokens"]
+        F3["File 3 - 1800 tokens"]
     end
 
     subgraph msg2["Message 2"]
-        F4[File 4-11<br/>8000 tokens]
+        F4["File 4-11 - 8000 tokens"]
     end
 
     subgraph msg3["Message 3"]
-        F5[File 12-16<br/>5000 tokens]
+        F5["File 12-16 - 5000 tokens"]
     end
 
     subgraph context["Context Sent to LLM"]
-        ALL["ALL FILES<br/>17,500+ tokens<br/>💸 High Cost"]
+        ALL["ALL FILES - 17,500+ tokens - High Cost"]
     end
 
     msg1 --> context
     msg2 --> context
     msg3 --> context
 
-    style ALL fill:#ff6b6b,color:#fff
-    style context fill:#fff5f5
+    style ALL fill:#e53e3e,color:#fff,stroke:#c53030
+    style context fill:#742a2a,color:#feb2b2
+    style msg1 fill:#2d3748,color:#e2e8f0
+    style msg2 fill:#2d3748,color:#e2e8f0
+    style msg3 fill:#2d3748,color:#e2e8f0
 ```
 
 ### Token Growth Problem
@@ -90,7 +95,7 @@ graph TD
 | 3 | 5 | 16 | 17,500 | $0.04 |
 | 4 | 0 (query only) | 16 | 17,500 | $0.04 |
 | 5 | 2 | 18 | 20,000 | $0.05 |
-| ... | ... | ... | **Grows linearly** | 💸💸💸 |
+| ... | ... | ... | **Grows linearly** | High |
 
 **Problem**: Every message sends ALL historical documents, even when irrelevant.
 
@@ -101,8 +106,9 @@ graph TD
 ### High-Level Architecture
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#fff', 'primaryBorderColor': '#2d3748', 'lineColor': '#718096'}}}%%
 flowchart TB
-    subgraph Upload["📤 Upload Pipeline"]
+    subgraph Upload["Upload Pipeline"]
         U1[File Upload] --> U2[OCR Processing]
         U2 --> U3[Generate Summary]
         U3 --> U4[Extract Metadata]
@@ -110,13 +116,13 @@ flowchart TB
         U5 --> U6[Store in Index]
     end
 
-    subgraph Storage["💾 Smart Storage"]
-        S1[(Document Index<br/>Redis)]
-        S2[(Vector Store<br/>Embeddings)]
-        S3[(Conversation<br/>Memory)]
+    subgraph Storage["Smart Storage"]
+        S1[(Document Index - Redis)]
+        S2[(Vector Store - Embeddings)]
+        S3[(Conversation Memory)]
     end
 
-    subgraph Query["🔍 Query Pipeline"]
+    subgraph Query["Query Pipeline"]
         Q1[User Query] --> Q2[Analyze Intent]
         Q2 --> Q3[Score Relevance]
         Q3 --> Q4[Select Documents]
@@ -124,7 +130,7 @@ flowchart TB
         Q5 --> Q6[Token Budget Check]
     end
 
-    subgraph LLM["🤖 LLM Processing"]
+    subgraph LLM["LLM Processing"]
         L1[Optimized Context] --> L2[Gemini LLM]
         L2 --> L3[Response]
     end
@@ -136,15 +142,16 @@ flowchart TB
     S3 --> Q5
     Q6 --> L1
 
-    style Upload fill:#e3f2fd
-    style Storage fill:#fff3e0
-    style Query fill:#e8f5e9
-    style LLM fill:#fce4ec
+    style Upload fill:#2c5282,color:#bee3f8,stroke:#2b6cb0
+    style Storage fill:#744210,color:#fefcbf,stroke:#b7791f
+    style Query fill:#276749,color:#c6f6d5,stroke:#38a169
+    style LLM fill:#702459,color:#fed7e2,stroke:#b83280
 ```
 
 ### Detailed Component Architecture
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'primaryBorderColor': '#718096', 'lineColor': '#a0aec0'}}}%%
 flowchart TB
     subgraph Frontend["Frontend"]
         FE1[Chat UI]
@@ -165,7 +172,7 @@ flowchart TB
         end
 
         subgraph Embedding["Embedding Service"]
-            EM1[Embedder<br/>Gemini API]
+            EM1["Embedder - Gemini API"]
             EM2[Vector Search]
         end
 
@@ -181,8 +188,8 @@ flowchart TB
     end
 
     subgraph Storage["Data Layer"]
-        DB1[(Redis<br/>Documents + Vectors)]
-        DB2[(File System<br/>JSON/MD)]
+        DB1[("Redis - Documents + Vectors")]
+        DB2[("File System - JSON/MD")]
     end
 
     subgraph External["External"]
@@ -205,6 +212,12 @@ flowchart TB
     CM1 --> DB1
     EM1 --> DB1
     OCR1 --> DB2
+
+    style Frontend fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style API fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style Services fill:#1a202c,color:#e2e8f0,stroke:#4a5568
+    style Storage fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style External fill:#2d3748,color:#e2e8f0,stroke:#4a5568
 ```
 
 ---
@@ -214,6 +227,7 @@ flowchart TB
 ### Document Lifecycle State Machine
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'primaryBorderColor': '#718096', 'lineColor': '#a0aec0'}}}%%
 stateDiagram-v2
     [*] --> Uploading: User uploads file
 
@@ -239,8 +253,9 @@ stateDiagram-v2
 ### Context Selection Algorithm
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'primaryBorderColor': '#718096', 'lineColor': '#a0aec0'}}}%%
 flowchart TD
-    START[User Query + Attachments] --> A{New files<br/>attached?}
+    START[User Query + Attachments] --> A{New files attached?}
 
     A -->|Yes| B[Add to FULL context]
     A -->|No| C[Skip]
@@ -248,8 +263,8 @@ flowchart TD
     B --> D[Calculate relevance scores]
     C --> D
 
-    D --> E{Explicit<br/>reference?}
-    E -->|"'invoice.pdf'"| F[Add to FULL context]
+    D --> E{Explicit reference?}
+    E -->|"filename match"| F[Add to FULL context]
     E -->|No| G[Check semantic similarity]
 
     G --> H{Similarity > 0.7?}
@@ -269,7 +284,7 @@ flowchart TD
     N -->|No| P[Downgrade content level]
 
     P --> Q{Can downgrade?}
-    Q -->|Yes| R[FULL→SUMMARY→METADATA]
+    Q -->|Yes| R["FULL to SUMMARY to METADATA"]
     Q -->|No| S[Exclude oldest/least relevant]
 
     R --> M
@@ -277,23 +292,26 @@ flowchart TD
 
     O --> END[Build Final Context]
 
-    style B fill:#4caf50,color:#fff
-    style F fill:#4caf50,color:#fff
-    style I fill:#4caf50,color:#fff
-    style K fill:#ff9800,color:#fff
-    style L fill:#9e9e9e,color:#fff
+    style B fill:#276749,color:#c6f6d5,stroke:#38a169
+    style F fill:#276749,color:#c6f6d5,stroke:#38a169
+    style I fill:#276749,color:#c6f6d5,stroke:#38a169
+    style K fill:#c05621,color:#feebc8,stroke:#dd6b20
+    style L fill:#4a5568,color:#e2e8f0,stroke:#718096
+    style START fill:#2c5282,color:#bee3f8,stroke:#2b6cb0
+    style END fill:#2c5282,color:#bee3f8,stroke:#2b6cb0
 ```
 
 ### Sliding Window Strategy
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#38a169', 'secondaryColor': '#c05621', 'tertiaryColor': '#e53e3e'}}}%%
 gantt
     title Conversation Context Window
     dateFormat X
     axisFormat %s
 
     section Active Window
-    Message N (Current)     :active, 0, 1
+    Message N - Current     :active, 0, 1
     Message N-1             :active, 1, 2
     Message N-2             :active, 2, 3
 
@@ -309,39 +327,41 @@ gantt
 ### Token Budget Allocation
 
 ```mermaid
-pie title Token Budget Distribution (8000 total)
-    "System Prompt" : 500
-    "Conversation (Active)" : 1500
-    "Conversation (Summaries)" : 500
-    "Documents (Full)" : 2000
-    "Documents (Summaries)" : 800
-    "Documents (Metadata)" : 200
-    "User Query" : 500
-    "Safety Buffer" : 2000
+%%{init: {'theme': 'base', 'themeVariables': { 'pie1': '#38a169', 'pie2': '#276749', 'pie3': '#2c5282', 'pie4': '#3182ce', 'pie5': '#c05621', 'pie6': '#dd6b20', 'pie7': '#805ad5', 'pie8': '#4a5568', 'pieTextColor': '#e2e8f0'}}}%%
+pie title Token Budget Distribution - 8000 total
+    "System Prompt - 500" : 500
+    "Conversation Active - 1500" : 1500
+    "Conversation Summaries - 500" : 500
+    "Documents Full - 2000" : 2000
+    "Documents Summaries - 800" : 800
+    "Documents Metadata - 200" : 200
+    "User Query - 500" : 500
+    "Safety Buffer - 2000" : 2000
 ```
 
 ### Content Level Comparison
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0'}}}%%
 flowchart LR
-    subgraph Full["FULL (~1500 tokens)"]
-        F1["Complete OCR text<br/>All tables<br/>All details"]
+    subgraph Full["FULL - ~1500 tokens"]
+        F1["Complete OCR text, All tables, All details"]
     end
 
-    subgraph Summary["SUMMARY (~150 tokens)"]
-        S1["2-3 sentence summary<br/>Key entities<br/>Main amounts"]
+    subgraph Summary["SUMMARY - ~150 tokens"]
+        S1["2-3 sentence summary, Key entities, Main amounts"]
     end
 
-    subgraph Meta["METADATA (~40 tokens)"]
-        M1["Filename, type<br/>Date, entities list"]
+    subgraph Meta["METADATA - ~40 tokens"]
+        M1["Filename, type, Date, entities list"]
     end
 
     Full -->|"Budget pressure"| Summary
     Summary -->|"More pressure"| Meta
 
-    style Full fill:#4caf50,color:#fff
-    style Summary fill:#ff9800,color:#fff
-    style Meta fill:#9e9e9e,color:#fff
+    style Full fill:#276749,color:#c6f6d5,stroke:#38a169
+    style Summary fill:#c05621,color:#feebc8,stroke:#dd6b20
+    style Meta fill:#4a5568,color:#e2e8f0,stroke:#718096
 ```
 
 ---
@@ -351,6 +371,7 @@ flowchart LR
 ### Entity Relationship Diagram
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0'}}}%%
 erDiagram
     SESSION ||--o{ MESSAGE_GROUP : contains
     SESSION ||--o{ DOCUMENT_INDEX : contains
@@ -448,6 +469,7 @@ DocumentIndex = {
 ### Phase Overview
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0'}}}%%
 gantt
     title Implementation Timeline
     dateFormat YYYY-MM-DD
@@ -465,7 +487,7 @@ gantt
     Conversation Memory             :p4, after p2, 3d
 
     section Phase 5
-    Optimization & Edge Cases       :p5, after p3 p4, 3d
+    Optimization and Edge Cases     :p5, after p3 p4, 3d
 
     section Milestones
     MVP Ready                       :milestone, after p2, 0d
@@ -475,12 +497,13 @@ gantt
 ### Phase Dependencies
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0'}}}%%
 flowchart TD
-    P1[Phase 1<br/>Document Indexing]
-    P2[Phase 2<br/>Context Builder]
-    P3[Phase 3<br/>Semantic Search]
-    P4[Phase 4<br/>Conversation Memory]
-    P5[Phase 5<br/>Optimization]
+    P1["Phase 1 - Document Indexing"]
+    P2["Phase 2 - Context Builder"]
+    P3["Phase 3 - Semantic Search"]
+    P4["Phase 4 - Conversation Memory"]
+    P5["Phase 5 - Optimization"]
 
     P1 --> P2
     P1 --> P3
@@ -488,19 +511,19 @@ flowchart TD
     P3 --> P5
     P4 --> P5
 
-    MVP{MVP<br/>Functional}
-    FULL{Full<br/>Feature}
+    MVP{{"MVP - Functional"}}
+    FULL{{"Full Feature"}}
 
     P2 --> MVP
     P5 --> FULL
 
-    style P1 fill:#e3f2fd
-    style P2 fill:#e8f5e9
-    style P3 fill:#fff3e0
-    style P4 fill:#fce4ec
-    style P5 fill:#f3e5f5
-    style MVP fill:#4caf50,color:#fff
-    style FULL fill:#2196f3,color:#fff
+    style P1 fill:#2c5282,color:#bee3f8,stroke:#2b6cb0
+    style P2 fill:#276749,color:#c6f6d5,stroke:#38a169
+    style P3 fill:#c05621,color:#feebc8,stroke:#dd6b20
+    style P4 fill:#702459,color:#fed7e2,stroke:#b83280
+    style P5 fill:#553c9a,color:#e9d8fd,stroke:#805ad5
+    style MVP fill:#38a169,color:#fff,stroke:#276749
+    style FULL fill:#3182ce,color:#fff,stroke:#2c5282
 ```
 
 ---
@@ -514,6 +537,7 @@ flowchart TD
 ### Sequence Diagram
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0', 'actorTextColor': '#e2e8f0', 'actorBkg': '#2d3748', 'actorBorder': '#4a5568', 'signalColor': '#a0aec0', 'signalTextColor': '#e2e8f0'}}}%%
 sequenceDiagram
     participant U as User
     participant FE as Frontend
@@ -544,11 +568,11 @@ sequenceDiagram
 
 ### Tasks
 
-- [ ] **1.1** Create data models (`DocumentIndex`, `DocumentMetadata`)
-- [ ] **1.2** Create `DocumentIndexService` with CRUD operations
-- [ ] **1.3** Implement `Summarizer` service (Gemini API)
+- [ ] **1.1** Create data models (DocumentIndex, DocumentMetadata)
+- [ ] **1.2** Create DocumentIndexService with CRUD operations
+- [ ] **1.3** Implement Summarizer service (Gemini API)
 - [ ] **1.4** Implement metadata extraction (entities, amounts, dates)
-- [ ] **1.5** Create `TokenCounter` utility
+- [ ] **1.5** Create TokenCounter utility
 - [ ] **1.6** Integrate indexing into upload endpoint
 - [ ] **1.7** Add index info to upload response
 
@@ -575,6 +599,7 @@ app/services/context_manager/
 ### Sequence Diagram
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0', 'actorTextColor': '#e2e8f0', 'actorBkg': '#2d3748', 'actorBorder': '#4a5568'}}}%%
 sequenceDiagram
     participant U as User
     participant API as Chat API
@@ -622,11 +647,11 @@ sequenceDiagram
 
 ### Tasks
 
-- [ ] **2.1** Create `ContextBuilder` service
-- [ ] **2.2** Implement `RelevanceScorer` (filename + keyword matching)
+- [ ] **2.1** Create ContextBuilder service
+- [ ] **2.2** Implement RelevanceScorer (filename + keyword matching)
 - [ ] **2.3** Implement sliding window for conversation
-- [ ] **2.4** Implement `TokenBudgetManager`
-- [ ] **2.5** Create context assembly logic (full → summary → metadata)
+- [ ] **2.4** Implement TokenBudgetManager
+- [ ] **2.5** Create context assembly logic (full to summary to metadata)
 - [ ] **2.6** Integrate into chat endpoint
 - [ ] **2.7** Add context metrics to response (for debugging)
 
@@ -636,7 +661,7 @@ sequenceDiagram
 app/services/context_manager/
 ├── context_builder.py        # Main context assembly
 ├── relevance_scorer.py       # Document relevance scoring
-├── token_budget_manager.py   # Budget allocation & enforcement
+├── token_budget_manager.py   # Budget allocation and enforcement
 └── context_assembler.py      # Assemble final context string
 ```
 
@@ -651,6 +676,7 @@ app/services/context_manager/
 ### Sequence Diagram
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0', 'actorTextColor': '#e2e8f0', 'actorBkg': '#2d3748', 'actorBorder': '#4a5568'}}}%%
 sequenceDiagram
     participant IDX as Document Indexer
     participant EMB as Embedder
@@ -676,11 +702,11 @@ sequenceDiagram
 
 ### Tasks
 
-- [ ] **3.1** Create `Embedder` service (Gemini embedding API)
-- [ ] **3.2** Create `VectorStore` service (Redis VSS)
+- [ ] **3.1** Create Embedder service (Gemini embedding API)
+- [ ] **3.2** Create VectorStore service (Redis VSS)
 - [ ] **3.3** Generate embeddings on document upload
 - [ ] **3.4** Implement semantic similarity search
-- [ ] **3.5** Enhance `RelevanceScorer` with semantic signals
+- [ ] **3.5** Enhance RelevanceScorer with semantic signals
 - [ ] **3.6** Add query embedding at request time
 - [ ] **3.7** Benchmark embedding latency
 
@@ -691,7 +717,7 @@ app/services/embedding/
 ├── __init__.py
 ├── embedder.py               # Generate embeddings via Gemini
 ├── vector_store.py           # Redis VSS operations
-└── similarity_search.py      # Search & rank by similarity
+└── similarity_search.py      # Search and rank by similarity
 ```
 
 ---
@@ -705,6 +731,7 @@ app/services/embedding/
 ### Sequence Diagram
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0', 'actorTextColor': '#e2e8f0', 'actorBkg': '#2d3748', 'actorBorder': '#4a5568'}}}%%
 sequenceDiagram
     participant API as Chat API
     participant MEM as Memory Service
@@ -736,7 +763,7 @@ sequenceDiagram
 
 ### Tasks
 
-- [ ] **4.1** Enhance `ConversationMemoryService` with message groups
+- [ ] **4.1** Enhance ConversationMemoryService with message groups
 - [ ] **4.2** Implement automatic summarization trigger
 - [ ] **4.3** Track document references per message
 - [ ] **4.4** Implement cross-message reference resolution
@@ -754,7 +781,7 @@ app/services/
 
 ---
 
-## Phase 5: Optimization & Edge Cases
+## Phase 5: Optimization and Edge Cases
 
 **Goal**: Production-ready robustness
 
@@ -763,14 +790,15 @@ app/services/
 ### Edge Case Handling Flow
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0'}}}%%
 flowchart TD
-    subgraph LargeFile["Large File (>10k tokens)"]
+    subgraph LargeFile["Large File - >10k tokens"]
         LF1[Detect large file] --> LF2[Chunk into sections]
         LF2 --> LF3[Embed each chunk]
         LF3 --> LF4[Retrieve relevant chunks only]
     end
 
-    subgraph ManyFiles["Many Files (10+)"]
+    subgraph ManyFiles["Many Files - 10+"]
         MF1[Count files] --> MF2[Index all]
         MF2 --> MF3[Include top 3 full]
         MF3 --> MF4[Rest as metadata]
@@ -789,6 +817,11 @@ flowchart TD
         CR2 --> CR3[Score by relevance]
         CR3 --> CR4[Promote to active]
     end
+
+    style LargeFile fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style ManyFiles fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style Ambiguous fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style CrossRef fill:#2d3748,color:#e2e8f0,stroke:#4a5568
 ```
 
 ### Tasks
@@ -803,9 +836,10 @@ flowchart TD
 
 ---
 
-## Edge Cases & Solutions
+## Edge Cases and Solutions
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0'}}}%%
 flowchart LR
     subgraph Cases["Edge Cases"]
         C1[Very Large File]
@@ -831,6 +865,9 @@ flowchart LR
     C4 --> S4
     C5 --> S5
     C6 --> S6
+
+    style Cases fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style Solutions fill:#276749,color:#c6f6d5,stroke:#38a169
 ```
 
 | Scenario | Detection | Solution | Fallback |
@@ -849,6 +886,7 @@ flowchart LR
 ### Context Building Request Flow
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0', 'actorTextColor': '#e2e8f0', 'actorBkg': '#2d3748', 'actorBorder': '#4a5568'}}}%%
 sequenceDiagram
     participant Client
     participant ChatAPI
@@ -862,7 +900,7 @@ sequenceDiagram
 
     ContextManager->>Redis: Get documents
     ContextManager->>Redis: Get conversation
-    ContextManager->>ContextManager: Score & select
+    ContextManager->>ContextManager: Score and select
     ContextManager->>ContextManager: Assemble context
     ContextManager-->>ChatAPI: BuiltContext
 
@@ -918,10 +956,11 @@ UploadResponse = {
 ### Decision Matrix
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0'}}}%%
 flowchart TD
     subgraph Embedding["Embedding Model"]
         E1[Gemini Embedding API]
-        E2[Local: sentence-transformers]
+        E2["Local: sentence-transformers"]
     end
 
     subgraph Vector["Vector Store"]
@@ -932,16 +971,19 @@ flowchart TD
 
     subgraph Summary["Summarization"]
         S1[Gemini LLM]
-        S2[Local: BART/T5]
+        S2["Local: BART/T5"]
     end
 
-    E1 -->|"Recommended"| REC1[Consistency with LLM<br/>High quality<br/>~$0.0001/1k tokens]
-    V1 -->|"Recommended"| REC2[Already using Redis<br/>No new infra<br/>Good for <100k docs]
-    S1 -->|"Recommended"| REC3[Best quality<br/>Already integrated<br/>~$0.00025/summary]
+    E1 -->|"Recommended"| REC1["Consistency with LLM, High quality, ~$0.0001/1k tokens"]
+    V1 -->|"Recommended"| REC2["Already using Redis, No new infra, Good for <100k docs"]
+    S1 -->|"Recommended"| REC3["Best quality, Already integrated, ~$0.00025/summary"]
 
-    style REC1 fill:#4caf50,color:#fff
-    style REC2 fill:#4caf50,color:#fff
-    style REC3 fill:#4caf50,color:#fff
+    style REC1 fill:#276749,color:#c6f6d5,stroke:#38a169
+    style REC2 fill:#276749,color:#c6f6d5,stroke:#38a169
+    style REC3 fill:#276749,color:#c6f6d5,stroke:#38a169
+    style Embedding fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style Vector fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style Summary fill:#2d3748,color:#e2e8f0,stroke:#4a5568
 ```
 
 ### Recommended Stack
@@ -956,10 +998,11 @@ flowchart TD
 ### Cost Estimation
 
 ```mermaid
-pie title Estimated Monthly Cost (1000 conversations)
-    "Embedding Generation" : 5
-    "Summarization" : 15
-    "LLM Queries (Optimized)" : 80
+%%{init: {'theme': 'base', 'themeVariables': { 'pie1': '#276749', 'pie2': '#c05621', 'pie3': '#2c5282', 'pieTextColor': '#e2e8f0', 'pieLegendTextColor': '#e2e8f0'}}}%%
+pie title Estimated Monthly Cost - 1000 conversations
+    "Embedding Generation - $5" : 5
+    "Summarization - $15" : 15
+    "LLM Queries Optimized - $80" : 80
 ```
 
 | Operation | Volume/Month | Unit Cost | Total |
@@ -978,6 +1021,7 @@ pie title Estimated Monthly Cost (1000 conversations)
 ### Performance Targets
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'xyChart': {'plotColorPalette': '#e53e3e, #38a169'}}}}%%
 xychart-beta
     title "Token Usage: Current vs Target"
     x-axis ["1 doc", "5 docs", "10 docs", "20 docs"]
@@ -988,11 +1032,11 @@ xychart-beta
 
 | Metric | Current | Target | Improvement |
 |--------|---------|--------|-------------|
-| Tokens/request (10 docs) | ~15,000 | ~5,000 | 67% ↓ |
+| Tokens/request (10 docs) | ~15,000 | ~5,000 | 67% reduction |
 | Context build latency | N/A | < 500ms | - |
 | Relevant doc accuracy | N/A | > 90% | - |
-| Cost/conversation (20 msgs) | ~$0.50 | ~$0.15 | 70% ↓ |
-| Max conversation length | ~20 msgs | 100+ msgs | 5x ↑ |
+| Cost/conversation (20 msgs) | ~$0.50 | ~$0.15 | 70% reduction |
+| Max conversation length | ~20 msgs | 100+ msgs | 5x increase |
 
 ---
 
@@ -1033,7 +1077,7 @@ app/
 
 ## Next Steps
 
-1. **Review & Approve** this plan
+1. **Review and Approve** this plan
 2. **Confirm** technology choices (embedding, vector store)
 3. **Begin Phase 1** - Document Indexing Foundation
 4. **Daily standups** to track progress
@@ -1055,10 +1099,10 @@ app/
 
 | Signal | Weight | Example |
 |--------|--------|---------|
-| Filename match | 0.4 | Query: "invoice.pdf" → invoice.pdf |
-| Explicit reference | 0.3 | Query: "the first file" → file at index 1 |
-| Keyword overlap | 0.2 | Query: "total amount" → docs with "total" |
-| Semantic similarity | 0.3 | Query: "how much to pay" → invoice docs |
+| Filename match | 0.4 | Query: "invoice.pdf" matches invoice.pdf |
+| Explicit reference | 0.3 | Query: "the first file" matches file at index 1 |
+| Keyword overlap | 0.2 | Query: "total amount" matches docs with "total" |
+| Semantic similarity | 0.3 | Query: "how much to pay" matches invoice docs |
 | Recency | 0.1 | Newer docs score higher |
 
 ---
