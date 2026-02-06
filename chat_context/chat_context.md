@@ -34,28 +34,40 @@ Design an intelligent context management system that efficiently handles multipl
 
 ## Current State Analysis
 
-### Current Architecture Flow
+### Current Architecture (Problem)
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#fff', 'primaryBorderColor': '#2d3748', 'lineColor': '#718096', 'secondaryColor': '#2d3748', 'tertiaryColor': '#1a202c', 'background': '#1a202c', 'mainBkg': '#2d3748', 'textColor': '#e2e8f0'}}}%%
-flowchart TD
-    A[User Upload] --> B[OCR Process] --> C[Store JSON/MD]
-    C --> D[User Query] --> E["Pass ALL Docs"]
-    E --> F[LLM] --> G[Response]
-    style E fill:#e53e3e,color:#fff,stroke:#c53030
-```
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#718096', 'edgeLabelBackground': '#1a202c'}}}%%
+flowchart TB
+    subgraph CLIENT["CLIENT"]
+        direction LR
+        U[/"User"/]
+    end
 
-### Problem Visualization
+    subgraph BACKEND["BACKEND"]
+        direction TB
+        subgraph UPLOAD["Upload Flow"]
+            OCR["OCR\nService"]
+            FS[("File\nStorage")]
+        end
+        subgraph CHAT["Chat Flow"]
+            CONCAT["Concatenate\nALL Documents"]
+            LLM["Gemini\nLLM"]
+        end
+    end
 
-```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#fff', 'lineColor': '#718096'}}}%%
-flowchart LR
-    M1["Msg1: 3 files\n4500 tok"] --> CTX["ALL FILES\n17,500+ tokens"]
-    M2["Msg2: 8 files\n8000 tok"] --> CTX
-    M3["Msg3: 5 files\n5000 tok"] --> CTX
-    CTX --> LLM["LLM\nHigh Cost"]
-    style CTX fill:#e53e3e,color:#fff,stroke:#c53030
-    style LLM fill:#742a2a,color:#feb2b2
+    U -->|"1. Upload"| OCR
+    OCR -->|"2. Store"| FS
+    U -->|"3. Query"| CONCAT
+    FS -->|"4. Load ALL"| CONCAT
+    CONCAT -->|"5. Send ALL\n17,500+ tokens"| LLM
+    LLM -->|"6. Response"| U
+
+    style CONCAT fill:#c53030,color:#fff,stroke:#9b2c2c
+    style CLIENT fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style BACKEND fill:#1a202c,color:#e2e8f0,stroke:#4a5568
+    style UPLOAD fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style CHAT fill:#2d3748,color:#e2e8f0,stroke:#4a5568
 ```
 
 ### Token Growth Problem
@@ -75,118 +87,235 @@ flowchart LR
 
 ## Target Architecture
 
-### High-Level Architecture
+### High-Level Architecture (Solution)
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#fff', 'lineColor': '#718096'}}}%%
-flowchart LR
-    subgraph UP["Upload"]
-        U1[File] --> U2[OCR] --> U3[Summary] --> U4[Embed]
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#718096', 'edgeLabelBackground': '#1a202c'}}}%%
+flowchart TB
+    subgraph CLIENT["CLIENT"]
+        U[/"User"/]
     end
-    subgraph ST["Storage"]
-        S1[(Index)]
-        S2[(Vectors)]
+
+    subgraph BACKEND["BACKEND"]
+        subgraph INGEST["Ingestion Pipeline"]
+            OCR["OCR"]
+            SUM["Summarizer"]
+            EMB["Embedder"]
+        end
+
+        subgraph CONTEXT["Context Manager"]
+            SCORE["Relevance\nScorer"]
+            SELECT["Smart\nSelector"]
+            BUDGET["Token\nBudget"]
+        end
+
+        subgraph STORAGE["Data Layer"]
+            IDX[("Document\nIndex")]
+            VEC[("Vector\nStore")]
+            MEM[("Conversation\nMemory")]
+        end
+
+        LLM["Gemini LLM"]
     end
-    subgraph QR["Query"]
-        Q1[Query] --> Q2[Score] --> Q3[Select] --> Q4[Budget]
-    end
-    subgraph LM["LLM"]
-        L1[Context] --> L2[Gemini]
-    end
-    U4 --> S1 & S2
-    S1 & S2 --> Q2
-    Q4 --> L1
-    style UP fill:#2c5282,color:#bee3f8
-    style ST fill:#744210,color:#fefcbf
-    style QR fill:#276749,color:#c6f6d5
-    style LM fill:#702459,color:#fed7e2
+
+    U -->|"Upload"| OCR
+    OCR --> SUM --> EMB
+    EMB -->|"Index"| IDX
+    EMB -->|"Embed"| VEC
+
+    U -->|"Query"| SCORE
+    IDX --> SCORE
+    VEC --> SCORE
+    SCORE --> SELECT --> BUDGET
+    MEM --> BUDGET
+    BUDGET -->|"~5,000 tokens"| LLM
+    LLM -->|"Response"| U
+
+    style BUDGET fill:#276749,color:#c6f6d5,stroke:#38a169
+    style CLIENT fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style BACKEND fill:#1a202c,color:#e2e8f0,stroke:#4a5568
+    style INGEST fill:#2c5282,color:#bee3f8,stroke:#3182ce
+    style CONTEXT fill:#276749,color:#c6f6d5,stroke:#38a169
+    style STORAGE fill:#744210,color:#fefcbf,stroke:#b7791f
 ```
 
 ### Detailed Component Architecture
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0'}}}%%
-flowchart LR
-    subgraph FE["Frontend"]
-        F1[Chat] & F2[Upload]
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#718096'}}}%%
+flowchart TB
+    subgraph FRONTEND["FRONTEND - Next.js"]
+        direction LR
+        CHAT_UI["Chat UI"]
+        UPLOAD_UI["Upload UI"]
     end
-    subgraph API["API"]
-        A1[/chat] & A2[/upload]
+
+    subgraph API_LAYER["API LAYER - FastAPI"]
+        direction LR
+        CHAT_EP["/api/chat"]
+        UPLOAD_EP["/api/upload"]
     end
-    subgraph SVC["Services"]
-        CM[Context Mgr]
-        EM[Embedder]
-        MM[Memory]
-        OCR[OCR]
+
+    subgraph SERVICES["SERVICES"]
+        direction TB
+        subgraph CTX_MGR["Context Manager"]
+            DOC_IDX["Document\nIndexer"]
+            REL_SCORE["Relevance\nScorer"]
+            CTX_BUILD["Context\nBuilder"]
+            TOK_MGR["Token\nManager"]
+        end
+
+        subgraph EMB_SVC["Embedding Service"]
+            EMBEDDER["Embedder"]
+            VEC_SEARCH["Vector\nSearch"]
+        end
+
+        subgraph MEM_SVC["Memory Service"]
+            CONV_MEM["Conversation\nMemory"]
+            MSG_SUM["Message\nSummarizer"]
+        end
+
+        OCR_SVC["OCR Service"]
     end
-    subgraph DB["Storage"]
-        R[(Redis)]
-        FS[(Files)]
+
+    subgraph DATA["DATA LAYER"]
+        direction LR
+        REDIS[("Redis\nIndex + Vectors")]
+        FILES[("File System\nJSON / MD")]
     end
-    subgraph EXT["External"]
-        G[Gemini]
+
+    subgraph EXTERNAL["EXTERNAL"]
+        direction LR
+        GEMINI_LLM["Gemini\nLLM"]
+        GEMINI_EMB["Gemini\nEmbeddings"]
     end
-    F1 --> A1 --> CM --> G
-    F2 --> A2 --> OCR --> CM
-    CM --> EM --> R
-    CM --> MM
-    OCR --> FS
-    style FE fill:#2d3748,color:#e2e8f0
-    style API fill:#2d3748,color:#e2e8f0
-    style SVC fill:#1a202c,color:#e2e8f0
-    style DB fill:#2d3748,color:#e2e8f0
-    style EXT fill:#2d3748,color:#e2e8f0
+
+    CHAT_UI --> CHAT_EP
+    UPLOAD_UI --> UPLOAD_EP
+
+    CHAT_EP --> CTX_BUILD
+    UPLOAD_EP --> OCR_SVC
+
+    OCR_SVC --> DOC_IDX
+    DOC_IDX --> EMBEDDER
+    CTX_BUILD --> REL_SCORE
+    REL_SCORE --> VEC_SEARCH
+    CTX_BUILD --> CONV_MEM
+    CTX_BUILD --> TOK_MGR
+    TOK_MGR --> GEMINI_LLM
+
+    EMBEDDER --> GEMINI_EMB
+    DOC_IDX --> REDIS
+    EMBEDDER --> REDIS
+    OCR_SVC --> FILES
+
+    style FRONTEND fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style API_LAYER fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style SERVICES fill:#1a202c,color:#e2e8f0,stroke:#4a5568
+    style CTX_MGR fill:#276749,color:#c6f6d5,stroke:#38a169
+    style EMB_SVC fill:#2c5282,color:#bee3f8,stroke:#3182ce
+    style MEM_SVC fill:#702459,color:#fed7e2,stroke:#b83280
+    style DATA fill:#744210,color:#fefcbf,stroke:#b7791f
+    style EXTERNAL fill:#553c9a,color:#e9d8fd,stroke:#805ad5
 ```
 
 ---
 
 ## Context Management Strategy
 
-### Document Lifecycle State Machine
+### Document Lifecycle
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0'}}}%%
-stateDiagram-v2
-    [*] --> Uploading
-    Uploading --> Processing --> Indexed
-    Indexed --> Active: In window
-    Active --> Summarized: Exits window
-    Summarized --> Archived: Session ages
-    Active --> Active: Referenced
-    Summarized --> Active: Query match
-    Archived --> Active: Deep search
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#718096'}}}%%
+flowchart LR
+    subgraph UPLOAD["Upload Phase"]
+        S1["Uploading"]
+        S2["Processing"]
+        S3["Indexed"]
+    end
+
+    subgraph ACTIVE["Active Phase"]
+        S4["Active\n(Full Content)"]
+    end
+
+    subgraph ARCHIVE["Archive Phase"]
+        S5["Summarized\n(Summary Only)"]
+        S6["Archived\n(Metadata Only)"]
+    end
+
+    S1 -->|"complete"| S2 -->|"OCR done"| S3 -->|"in window"| S4
+    S4 -->|"exits window"| S5 -->|"session ages"| S6
+    S5 -.->|"query match"| S4
+    S6 -.->|"deep search"| S4
+
+    style UPLOAD fill:#2c5282,color:#bee3f8,stroke:#3182ce
+    style ACTIVE fill:#276749,color:#c6f6d5,stroke:#38a169
+    style ARCHIVE fill:#744210,color:#fefcbf,stroke:#b7791f
 ```
 
-### Context Selection Algorithm
+### Context Selection Flow
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0'}}}%%
-flowchart LR
-    subgraph Input
-        Q[Query]
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#718096'}}}%%
+flowchart TB
+    subgraph INPUT["INPUT"]
+        QUERY["User Query"]
+        DOCS["Session Documents"]
     end
-    subgraph Score["Relevance Scoring"]
-        S1{New file?} -->|Yes| FULL1[FULL]
-        S1 -->|No| S2{Name match?}
-        S2 -->|Yes| FULL2[FULL]
-        S2 -->|No| S3{Sim>0.7?}
-        S3 -->|Yes| FULL3[FULL]
-        S3 -->|No| S4{Sim>0.4?}
-        S4 -->|Yes| SUM[SUMMARY]
-        S4 -->|No| META[METADATA]
+
+    subgraph RELEVANCE["RELEVANCE SCORING"]
+        direction TB
+        CHECK1{"New Attachment?"}
+        CHECK2{"Filename Match?"}
+        CHECK3{"Semantic Sim > 0.7?"}
+        CHECK4{"Semantic Sim > 0.4?"}
     end
-    subgraph Budget["Token Budget"]
-        B1{Under?} -->|Yes| OK[Include]
-        B1 -->|No| DG[Downgrade]
-        DG --> B1
+
+    subgraph LEVELS["CONTENT LEVELS"]
+        direction TB
+        FULL["FULL\n~1500 tokens"]
+        SUMMARY["SUMMARY\n~150 tokens"]
+        META["METADATA\n~40 tokens"]
     end
-    Q --> S1
-    FULL1 & FULL2 & FULL3 & SUM & META --> B1
-    style FULL1 fill:#276749,color:#c6f6d5
-    style FULL2 fill:#276749,color:#c6f6d5
-    style FULL3 fill:#276749,color:#c6f6d5
-    style SUM fill:#c05621,color:#feebc8
-    style META fill:#4a5568,color:#e2e8f0
+
+    subgraph BUDGET["TOKEN BUDGET"]
+        direction TB
+        CHECK_B{"Under 8000?"}
+        DOWNGRADE["Downgrade Level"]
+        INCLUDE["Include in Context"]
+    end
+
+    subgraph OUTPUT["OUTPUT"]
+        CONTEXT["Optimized Context\n~5000 tokens"]
+    end
+
+    QUERY --> CHECK1
+    DOCS --> CHECK1
+    CHECK1 -->|"Yes"| FULL
+    CHECK1 -->|"No"| CHECK2
+    CHECK2 -->|"Yes"| FULL
+    CHECK2 -->|"No"| CHECK3
+    CHECK3 -->|"Yes"| FULL
+    CHECK3 -->|"No"| CHECK4
+    CHECK4 -->|"Yes"| SUMMARY
+    CHECK4 -->|"No"| META
+
+    FULL --> CHECK_B
+    SUMMARY --> CHECK_B
+    META --> CHECK_B
+    CHECK_B -->|"Yes"| INCLUDE
+    CHECK_B -->|"No"| DOWNGRADE
+    DOWNGRADE --> CHECK_B
+    INCLUDE --> CONTEXT
+
+    style INPUT fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style RELEVANCE fill:#2c5282,color:#bee3f8,stroke:#3182ce
+    style LEVELS fill:#1a202c,color:#e2e8f0,stroke:#4a5568
+    style BUDGET fill:#276749,color:#c6f6d5,stroke:#38a169
+    style OUTPUT fill:#276749,color:#c6f6d5,stroke:#38a169
+    style FULL fill:#276749,color:#c6f6d5,stroke:#38a169
+    style SUMMARY fill:#c05621,color:#feebc8,stroke:#dd6b20
+    style META fill:#4a5568,color:#e2e8f0,stroke:#718096
 ```
 
 ### Sliding Window Strategy
@@ -210,33 +339,77 @@ flowchart LR
 | User Query | 500 | 6% |
 | Safety Buffer | 2000 | 25% |
 
-### Content Level Comparison
+### Content Levels
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0'}}}%%
-flowchart LR
-    FULL["FULL ~1500t\nComplete text"] -->|pressure| SUM["SUMMARY ~150t\nKey points"] -->|more| META["META ~40t\nFilename only"]
-    style FULL fill:#276749,color:#c6f6d5
-    style SUM fill:#c05621,color:#feebc8
-    style META fill:#4a5568,color:#e2e8f0
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#718096'}}}%%
+flowchart TB
+    subgraph FULL_BOX["FULL CONTENT"]
+        FULL_T["~1500 tokens"]
+        FULL_D["Complete OCR text\nAll tables\nAll extracted data"]
+    end
+
+    subgraph SUM_BOX["SUMMARY"]
+        SUM_T["~150 tokens"]
+        SUM_D["2-3 sentence summary\nKey entities\nMain amounts"]
+    end
+
+    subgraph META_BOX["METADATA"]
+        META_T["~40 tokens"]
+        META_D["Filename\nDocument type\nDate"]
+    end
+
+    FULL_BOX -->|"budget pressure"| SUM_BOX -->|"more pressure"| META_BOX
+
+    style FULL_BOX fill:#276749,color:#c6f6d5,stroke:#38a169
+    style SUM_BOX fill:#c05621,color:#feebc8,stroke:#dd6b20
+    style META_BOX fill:#4a5568,color:#e2e8f0,stroke:#718096
 ```
 
 ---
 
 ## Data Models
 
-### Entity Relationship Diagram
+### Entity Relationship
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0'}}}%%
-erDiagram
-    SESSION ||--o{ MESSAGE_GROUP : has
-    SESSION ||--o{ DOCUMENT_INDEX : has
-    DOCUMENT_INDEX ||--|| EMBEDDING : has
-    SESSION { uuid id datetime created }
-    MESSAGE_GROUP { int idx string user_msg string response string summary }
-    DOCUMENT_INDEX { uuid id string filename string type string content string summary }
-    EMBEDDING { uuid doc_id vector embedding }
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#718096'}}}%%
+flowchart TB
+    subgraph SESSION_BOX["SESSION"]
+        S_ID["session_id: UUID"]
+        S_USER["user_id: UUID"]
+        S_CREATED["created_at: DateTime"]
+    end
+
+    subgraph MSG_BOX["MESSAGE_GROUP"]
+        M_IDX["group_idx: Int"]
+        M_USER["user_message: String"]
+        M_RESP["assistant_response: String"]
+        M_SUM["summary: String"]
+    end
+
+    subgraph DOC_BOX["DOCUMENT_INDEX"]
+        D_ID["doc_id: UUID"]
+        D_FILE["filename: String"]
+        D_TYPE["document_type: String"]
+        D_FULL["full_content: Text"]
+        D_SUM["summary: String"]
+        D_META["metadata: JSON"]
+    end
+
+    subgraph EMB_BOX["EMBEDDING"]
+        E_ID["doc_id: UUID"]
+        E_VEC["embedding: Vector768"]
+    end
+
+    SESSION_BOX -->|"1:N"| MSG_BOX
+    SESSION_BOX -->|"1:N"| DOC_BOX
+    DOC_BOX -->|"1:1"| EMB_BOX
+
+    style SESSION_BOX fill:#2c5282,color:#bee3f8,stroke:#3182ce
+    style MSG_BOX fill:#702459,color:#fed7e2,stroke:#b83280
+    style DOC_BOX fill:#276749,color:#c6f6d5,stroke:#38a169
+    style EMB_BOX fill:#553c9a,color:#e9d8fd,stroke:#805ad5
 ```
 
 ### Document Index Schema
@@ -303,20 +476,51 @@ DocumentIndex = {
 ### Phase Dependencies
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0'}}}%%
-flowchart LR
-    P1[P1 Index] --> P2[P2 Context] & P3[P3 Search]
-    P2 --> P4[P4 Memory]
-    P3 & P4 --> P5[P5 Optimize]
-    P2 --> MVP((MVP))
-    P5 --> FULL((Full))
-    style P1 fill:#2c5282,color:#bee3f8
-    style P2 fill:#276749,color:#c6f6d5
-    style P3 fill:#c05621,color:#feebc8
-    style P4 fill:#702459,color:#fed7e2
-    style P5 fill:#553c9a,color:#e9d8fd
-    style MVP fill:#38a169,color:#fff
-    style FULL fill:#3182ce,color:#fff
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#718096'}}}%%
+flowchart TB
+    subgraph TIMELINE["IMPLEMENTATION TIMELINE"]
+        direction TB
+
+        subgraph WEEK1["Week 1"]
+            P1["Phase 1\nDocument Indexing\n2-3 days"]
+        end
+
+        subgraph WEEK2["Week 2"]
+            P2["Phase 2\nContext Builder\n2-3 days"]
+            P3["Phase 3\nSemantic Search\n3-4 days"]
+        end
+
+        subgraph WEEK3["Week 3"]
+            P4["Phase 4\nConversation Memory\n2-3 days"]
+            P5["Phase 5\nOptimization\n2-3 days"]
+        end
+    end
+
+    subgraph MILESTONES["MILESTONES"]
+        MVP(["MVP\nFunctional"])
+        FULL(["Full\nProduction"])
+    end
+
+    P1 --> P2
+    P1 --> P3
+    P2 --> P4
+    P3 --> P5
+    P4 --> P5
+    P2 --> MVP
+    P5 --> FULL
+
+    style TIMELINE fill:#1a202c,color:#e2e8f0,stroke:#4a5568
+    style WEEK1 fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style WEEK2 fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style WEEK3 fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style MILESTONES fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style P1 fill:#2c5282,color:#bee3f8,stroke:#3182ce
+    style P2 fill:#276749,color:#c6f6d5,stroke:#38a169
+    style P3 fill:#c05621,color:#feebc8,stroke:#dd6b20
+    style P4 fill:#702459,color:#fed7e2,stroke:#b83280
+    style P5 fill:#553c9a,color:#e9d8fd,stroke:#805ad5
+    style MVP fill:#38a169,color:#fff,stroke:#276749
+    style FULL fill:#3182ce,color:#fff,stroke:#2c5282
 ```
 
 ---
@@ -327,23 +531,42 @@ flowchart LR
 
 **Duration**: 2-3 days
 
-### Sequence Diagram
+### Upload Flow
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0', 'actorBkg': '#2d3748'}}}%%
-sequenceDiagram
-    participant U as User
-    participant API as API
-    participant OCR as OCR
-    participant IDX as Indexer
-    participant DB as Redis
-    U->>API: Upload
-    API->>OCR: Process
-    OCR-->>API: Content
-    API->>IDX: Index
-    IDX->>IDX: Summary + Meta
-    IDX->>DB: Store
-    API-->>U: Done
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#718096'}}}%%
+flowchart LR
+    subgraph CLIENT["Client"]
+        USER[/"User"/]
+    end
+
+    subgraph UPLOAD_FLOW["Upload Pipeline"]
+        direction TB
+        API["API\n/upload"]
+        OCR["OCR\nService"]
+        IDX["Document\nIndexer"]
+        SUM["Summarizer"]
+        META["Metadata\nExtractor"]
+    end
+
+    subgraph STORE["Storage"]
+        REDIS[("Redis\nDocument Index")]
+        FILES[("Files\nJSON/MD")]
+    end
+
+    USER -->|"1. Upload File"| API
+    API -->|"2. Extract Text"| OCR
+    OCR -->|"3. Index"| IDX
+    IDX -->|"4a. Generate Summary"| SUM
+    IDX -->|"4b. Extract Metadata"| META
+    SUM -->|"5. Store"| REDIS
+    META --> REDIS
+    OCR -->|"Store Raw"| FILES
+    REDIS -->|"6. Response"| USER
+
+    style CLIENT fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style UPLOAD_FLOW fill:#2c5282,color:#bee3f8,stroke:#3182ce
+    style STORE fill:#744210,color:#fefcbf,stroke:#b7791f
 ```
 
 ### Tasks
@@ -376,24 +599,43 @@ app/services/context_manager/
 
 **Duration**: 2-3 days
 
-### Sequence Diagram
+### Chat Flow
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0', 'actorBkg': '#2d3748'}}}%%
-sequenceDiagram
-    participant U as User
-    participant API as API
-    participant CB as Builder
-    participant DB as Redis
-    participant LLM as Gemini
-    U->>API: Message
-    API->>CB: Build context
-    CB->>DB: Get docs + history
-    CB->>CB: Score + Select + Budget
-    CB-->>API: Context
-    API->>LLM: Send
-    LLM-->>API: Response
-    API-->>U: Reply
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#718096'}}}%%
+flowchart LR
+    subgraph CLIENT["Client"]
+        USER[/"User"/]
+    end
+
+    subgraph CHAT_FLOW["Chat Pipeline"]
+        direction TB
+        API["API\n/chat"]
+        CTX["Context\nBuilder"]
+        SCORE["Relevance\nScorer"]
+        BUDGET["Token\nBudget"]
+    end
+
+    subgraph DATA["Data"]
+        REDIS[("Redis")]
+    end
+
+    subgraph LLM_BOX["LLM"]
+        GEMINI["Gemini"]
+    end
+
+    USER -->|"1. Query"| API
+    API -->|"2. Build Context"| CTX
+    CTX -->|"3. Get Docs"| REDIS
+    REDIS -->|"4. Documents"| SCORE
+    SCORE -->|"5. Ranked"| BUDGET
+    BUDGET -->|"6. ~5000 tokens"| GEMINI
+    GEMINI -->|"7. Response"| USER
+
+    style CLIENT fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style CHAT_FLOW fill:#276749,color:#c6f6d5,stroke:#38a169
+    style DATA fill:#744210,color:#fefcbf,stroke:#b7791f
+    style LLM_BOX fill:#553c9a,color:#e9d8fd,stroke:#805ad5
 ```
 
 ### Tasks
@@ -424,23 +666,43 @@ app/services/context_manager/
 
 **Duration**: 3-4 days
 
-### Sequence Diagram
+### Embedding Flow
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0', 'actorBkg': '#2d3748'}}}%%
-sequenceDiagram
-    participant IDX as Indexer
-    participant EMB as Embedder
-    participant VS as VectorDB
-    participant API as Gemini
-    Note over IDX,API: Upload
-    IDX->>EMB: Embed doc
-    EMB->>API: Get vector
-    EMB->>VS: Store
-    Note over IDX,API: Query
-    EMB->>API: Embed query
-    EMB->>VS: Search
-    VS-->>EMB: Top K
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#718096'}}}%%
+flowchart TB
+    subgraph INGEST["ON UPLOAD"]
+        direction LR
+        DOC["Document\nText"]
+        EMB1["Embedder"]
+        VEC1["Vector\n[768 dims]"]
+        STORE["Vector\nStore"]
+
+        DOC -->|"1. Embed"| EMB1 -->|"2. Generate"| VEC1 -->|"3. Store"| STORE
+    end
+
+    subgraph QUERY["ON QUERY"]
+        direction LR
+        QRY["User\nQuery"]
+        EMB2["Embedder"]
+        VEC2["Query\nVector"]
+        SEARCH["Similarity\nSearch"]
+        RESULTS["Top K\nDocuments"]
+
+        QRY -->|"1. Embed"| EMB2 -->|"2. Generate"| VEC2 -->|"3. Search"| SEARCH -->|"4. Return"| RESULTS
+    end
+
+    subgraph EXTERNAL["GEMINI API"]
+        GEMINI_EMB["Embedding\nModel"]
+    end
+
+    EMB1 --> GEMINI_EMB
+    EMB2 --> GEMINI_EMB
+    STORE -.->|"Vector DB"| SEARCH
+
+    style INGEST fill:#2c5282,color:#bee3f8,stroke:#3182ce
+    style QUERY fill:#276749,color:#c6f6d5,stroke:#38a169
+    style EXTERNAL fill:#553c9a,color:#e9d8fd,stroke:#805ad5
 ```
 
 ### Tasks
@@ -471,23 +733,45 @@ app/services/embedding/
 
 **Duration**: 2-3 days
 
-### Sequence Diagram
+### Memory Management Flow
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0', 'actorBkg': '#2d3748'}}}%%
-sequenceDiagram
-    participant API as API
-    participant MEM as Memory
-    participant DB as Redis
-    Note over API,DB: Save
-    API->>MEM: Store msg
-    MEM->>DB: Save
-    alt Window exceeded
-        MEM->>MEM: Summarize old
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#718096'}}}%%
+flowchart TB
+    subgraph SAVE["ON MESSAGE SAVE"]
+        direction TB
+        MSG["New Message\nGroup"]
+        STORE_FULL["Store Full\nContent"]
+        CHECK{"Window\n> 3 groups?"}
+        SUMMARIZE["Summarize\nOldest Group"]
     end
-    Note over API,DB: Load
-    MEM->>DB: Fetch
-    MEM-->>API: Active full + History summary
+
+    subgraph LOAD["ON CONTEXT BUILD"]
+        direction TB
+        FETCH["Fetch All\nGroups"]
+        ACTIVE["Active Window\nFull Content\n(last 3)"]
+        HISTORY["History\nSummaries Only\n(older)"]
+        COMBINE["Combined\nContext"]
+    end
+
+    subgraph MEMORY["REDIS"]
+        MEM_STORE[("Conversation\nMemory")]
+    end
+
+    MSG --> STORE_FULL --> MEM_STORE
+    MEM_STORE --> CHECK
+    CHECK -->|"Yes"| SUMMARIZE --> MEM_STORE
+    CHECK -->|"No"| DONE["Done"]
+
+    FETCH --> MEM_STORE
+    MEM_STORE --> ACTIVE
+    MEM_STORE --> HISTORY
+    ACTIVE --> COMBINE
+    HISTORY --> COMBINE
+
+    style SAVE fill:#2c5282,color:#bee3f8,stroke:#3182ce
+    style LOAD fill:#276749,color:#c6f6d5,stroke:#38a169
+    style MEMORY fill:#744210,color:#fefcbf,stroke:#b7791f
 ```
 
 ### Tasks
@@ -516,18 +800,37 @@ app/services/
 
 **Duration**: 2-3 days
 
-### Edge Case Handling Flow
+### Edge Case Handling
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0'}}}%%
-flowchart LR
-    subgraph Cases["Edge Cases"]
-        C1[Large File] --> S1[Chunk + Select]
-        C2[Many Files] --> S2[Top 3 Full]
-        C3[Ambiguous] --> S3[Semantic + Ask]
-        C4[Cross-ref] --> S4[Session Search]
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#718096'}}}%%
+flowchart TB
+    subgraph CASES["EDGE CASES"]
+        direction TB
+        subgraph LARGE["Large File > 10k tokens"]
+            L1["Detect"] --> L2["Chunk"] --> L3["Embed Each"] --> L4["Select Relevant"]
+        end
+
+        subgraph MANY["Many Files > 10"]
+            M1["Count"] --> M2["Rank All"] --> M3["Top 3 Full"] --> M4["Rest Metadata"]
+        end
+
+        subgraph AMBIG["Ambiguous Reference"]
+            A1["'that file'"] --> A2["Semantic Match"] --> A3{"Confidence\n> 0.8?"}
+            A3 -->|"Yes"| A4["Use Best"]
+            A3 -->|"No"| A5["Ask User"]
+        end
+
+        subgraph CROSS["Cross-Message Ref"]
+            C1["'earlier file'"] --> C2["Search Session"] --> C3["Promote to Active"]
+        end
     end
-    style Cases fill:#2d3748,color:#e2e8f0
+
+    style CASES fill:#1a202c,color:#e2e8f0,stroke:#4a5568
+    style LARGE fill:#2c5282,color:#bee3f8,stroke:#3182ce
+    style MANY fill:#276749,color:#c6f6d5,stroke:#38a169
+    style AMBIG fill:#c05621,color:#feebc8,stroke:#dd6b20
+    style CROSS fill:#702459,color:#fed7e2,stroke:#b83280
 ```
 
 ### Tasks
@@ -545,20 +848,37 @@ flowchart LR
 ## Edge Cases and Solutions
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#718096'}}}%%
 flowchart LR
-    C1[Large File] --> S1[Chunk]
-    C2[10+ Files] --> S2[Top 3]
-    C3[Ambiguous] --> S3[Ask]
-    C4[Cross-ref] --> S4[Search]
-    C5[Conflict] --> S5[Include All]
-    C6[Long Chat] --> S6[Summarize]
-    style S1 fill:#276749,color:#c6f6d5
-    style S2 fill:#276749,color:#c6f6d5
-    style S3 fill:#276749,color:#c6f6d5
-    style S4 fill:#276749,color:#c6f6d5
-    style S5 fill:#276749,color:#c6f6d5
-    style S6 fill:#276749,color:#c6f6d5
+    subgraph PROBLEMS["PROBLEMS"]
+        direction TB
+        P1["Large File\n> 10k tokens"]
+        P2["Many Files\n> 10"]
+        P3["Ambiguous\nReference"]
+        P4["Cross-Message\nReference"]
+        P5["Conflicting\nInfo"]
+        P6["Long Chat\n> 50 msgs"]
+    end
+
+    subgraph SOLUTIONS["SOLUTIONS"]
+        direction TB
+        S1["Chunk +\nSelective Retrieval"]
+        S2["Top 3 Full +\nRest Metadata"]
+        S3["Recency +\nSemantic + Ask"]
+        S4["Session-wide\nSearch"]
+        S5["Include All\nRelevant"]
+        S6["Aggressive\nSummarization"]
+    end
+
+    P1 --> S1
+    P2 --> S2
+    P3 --> S3
+    P4 --> S4
+    P5 --> S5
+    P6 --> S6
+
+    style PROBLEMS fill:#742a2a,color:#feb2b2,stroke:#c53030
+    style SOLUTIONS fill:#276749,color:#c6f6d5,stroke:#38a169
 ```
 
 | Scenario | Detection | Solution | Fallback |
@@ -574,24 +894,56 @@ flowchart LR
 
 ## API Design
 
-### Context Building Request Flow
+### Request Flow Architecture
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0', 'actorBkg': '#2d3748'}}}%%
-sequenceDiagram
-    participant C as Client
-    participant API as API
-    participant CM as Context
-    participant DB as Redis
-    participant G as Gemini
-    C->>API: POST /chat
-    API->>CM: build_context
-    CM->>DB: Get docs + conv
-    CM-->>API: Context
-    API->>G: Send
-    G-->>API: Response
-    API->>DB: Save
-    API-->>C: Reply + stats
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#718096'}}}%%
+flowchart TB
+    subgraph CLIENT["CLIENT"]
+        REQ["POST /chat\n{message, session_id}"]
+    end
+
+    subgraph API["API LAYER"]
+        ENDPOINT["Chat\nEndpoint"]
+    end
+
+    subgraph CONTEXT["CONTEXT MANAGER"]
+        direction TB
+        FETCH["Fetch\nDocuments"]
+        SCORE["Score\nRelevance"]
+        SELECT["Select\nContent"]
+        ASSEMBLE["Assemble\nContext"]
+    end
+
+    subgraph DATA["DATA LAYER"]
+        REDIS[("Redis")]
+    end
+
+    subgraph LLM["LLM"]
+        GEMINI["Gemini"]
+    end
+
+    subgraph RESPONSE["RESPONSE"]
+        RES["Response +\nContext Stats"]
+    end
+
+    REQ -->|"1"| ENDPOINT
+    ENDPOINT -->|"2"| FETCH
+    FETCH -->|"3"| REDIS
+    REDIS -->|"4"| SCORE
+    SCORE -->|"5"| SELECT
+    SELECT -->|"6"| ASSEMBLE
+    ASSEMBLE -->|"7 ~5k tokens"| GEMINI
+    GEMINI -->|"8"| ENDPOINT
+    ENDPOINT -->|"9 Save"| REDIS
+    ENDPOINT -->|"10"| RES
+
+    style CLIENT fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style API fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style CONTEXT fill:#276749,color:#c6f6d5,stroke:#38a169
+    style DATA fill:#744210,color:#fefcbf,stroke:#b7791f
+    style LLM fill:#553c9a,color:#e9d8fd,stroke:#805ad5
+    style RESPONSE fill:#2d3748,color:#e2e8f0,stroke:#4a5568
 ```
 
 ### New Response Schema
@@ -636,17 +988,44 @@ UploadResponse = {
 
 ## Technology Decisions
 
-### Decision Matrix
+### Technology Stack
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0'}}}%%
-flowchart LR
-    E[Embedding] --> E1[Gemini API]
-    V[Vector DB] --> V1[Redis VSS]
-    S[Summarizer] --> S1[Gemini LLM]
-    style E1 fill:#276749,color:#c6f6d5
-    style V1 fill:#276749,color:#c6f6d5
-    style S1 fill:#276749,color:#c6f6d5
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a5568', 'primaryTextColor': '#e2e8f0', 'lineColor': '#718096'}}}%%
+flowchart TB
+    subgraph STACK["RECOMMENDED STACK"]
+        direction TB
+
+        subgraph EMB_CHOICE["EMBEDDING"]
+            EMB_OPT1["Gemini\nEmbedding API"]
+            EMB_OPT2["sentence-\ntransformers"]
+            EMB_OPT1 ---|"SELECTED"| EMB_WHY["Consistency\nHigh Quality\n$0.0001/1k tok"]
+        end
+
+        subgraph VEC_CHOICE["VECTOR STORE"]
+            VEC_OPT1["Redis VSS"]
+            VEC_OPT2["Qdrant"]
+            VEC_OPT3["Pinecone"]
+            VEC_OPT1 ---|"SELECTED"| VEC_WHY["Already in stack\nNo new infra\n< 100k docs"]
+        end
+
+        subgraph SUM_CHOICE["SUMMARIZATION"]
+            SUM_OPT1["Gemini LLM"]
+            SUM_OPT2["BART/T5\nLocal"]
+            SUM_OPT1 ---|"SELECTED"| SUM_WHY["Best quality\nAlready integrated\n$0.00025/sum"]
+        end
+    end
+
+    style STACK fill:#1a202c,color:#e2e8f0,stroke:#4a5568
+    style EMB_CHOICE fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style VEC_CHOICE fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style SUM_CHOICE fill:#2d3748,color:#e2e8f0,stroke:#4a5568
+    style EMB_OPT1 fill:#276749,color:#c6f6d5,stroke:#38a169
+    style VEC_OPT1 fill:#276749,color:#c6f6d5,stroke:#38a169
+    style SUM_OPT1 fill:#276749,color:#c6f6d5,stroke:#38a169
+    style EMB_WHY fill:#276749,color:#c6f6d5,stroke:#38a169
+    style VEC_WHY fill:#276749,color:#c6f6d5,stroke:#38a169
+    style SUM_WHY fill:#276749,color:#c6f6d5,stroke:#38a169
 ```
 
 ### Recommended Stack
