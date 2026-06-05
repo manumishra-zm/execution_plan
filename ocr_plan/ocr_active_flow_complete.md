@@ -129,35 +129,24 @@ flowchart TD
     RESP --> SAVE["persist sessions/{id}/*.json · *.md · *.txt<br/>+ originals/"]
     SAVE --> RENDER["frontend renders<br/><i>file-preview-modal.tsx</i>"]
 
-    %% ---------------- COLOR THEME ----------------
-    classDef fe        fill:#bfdbfe,stroke:#2563eb,stroke-width:1px,color:#1e3a8a;
-    classDef api       fill:#ddd6fe,stroke:#7c3aed,stroke-width:1px,color:#4c1d95;
-    classDef decision  fill:#fde68a,stroke:#d97706,stroke-width:1px,color:#78350f;
-    classDef local     fill:#bbf7d0,stroke:#16a34a,stroke-width:1px,color:#14532d;
-    classDef gementry  fill:#fed7aa,stroke:#ea580c,stroke-width:1px,color:#7c2d12;
-    classDef gem       fill:#fdba74,stroke:#c2410c,stroke-width:1px,color:#7c2d12;
-    classDef model     fill:#fecaca,stroke:#dc2626,stroke-width:1px,color:#7f1d1d;
-    classDef ok        fill:#86efac,stroke:#15803d,stroke-width:2px,color:#14532d;
-    classDef post      fill:#a5f3fc,stroke:#0891b2,stroke-width:1px,color:#164e63;
-    classDef resp      fill:#cbd5e1,stroke:#475569,stroke-width:1px,color:#0f172a;
+    %% ---------------- COLOR THEME · 4 colors, light+dark legible ----------------
+    %% light fills + explicit dark text → readable on both white and dark canvases
+    classDef ctrl   fill:#cfe2ff,stroke:#1d4ed8,stroke-width:1px,color:#0b2a6b;
+    classDef free   fill:#c9f2d4,stroke:#15803d,stroke-width:1px,color:#0b3d1f;
+    classDef gemini fill:#ffe2b8,stroke:#c2410c,stroke-width:1px,color:#5c2306;
+    classDef out    fill:#e3def7,stroke:#6d28d9,stroke-width:1px,color:#2e1065;
+    classDef choice fill:#e5e7eb,stroke:#6b7280,stroke-width:1px,color:#111827;
 
-    class U,UC,PX,RENDER fe;
-    class EP,FR api;
-    class H,PDFD decision;
-    class TXT,CSV,DOCX,XLS,PDF,PNAT local;
-    class IMG,XP,LG,PRAS,LGR,GM gementry;
-    class ENC,PR,CH gem;
-    class M1,M2,M3,M4 model;
-    class OK ok;
-    class DS,MC,PPX post;
-    class RESP,SAVE resp;
-
-    %% subgraph background tints
-    style FE    fill:#eff6ff,stroke:#93c5fd,color:#1e3a8a;
-    style API   fill:#f5f3ff,stroke:#c4b5fd,color:#4c1d95;
-    style LOCAL fill:#f0fdf4,stroke:#86efac,color:#14532d;
-    style GEM   fill:#fff7ed,stroke:#fdba74,color:#7c2d12;
-    style POST  fill:#ecfeff,stroke:#67e8f9,color:#164e63;
+    %% blue = frontend + backend control
+    class U,UC,PX,EP,FR,RENDER ctrl;
+    %% green = free local extraction (no AI)
+    class TXT,CSV,DOCX,XLS,PDF,PNAT free;
+    %% orange = the Gemini path (entry → engine → models → output)
+    class IMG,XP,LG,PRAS,LGR,GM,ENC,PR,CH,M1,M2,M3,M4,OK gemini;
+    %% violet = post-OCR + response
+    class DS,MC,PPX,RESP,SAVE out;
+    %% neutral grey = decision points
+    class H,PDFD choice;
 ```
 
 ### 3a. ASCII master flow (for viewers without Mermaid)
