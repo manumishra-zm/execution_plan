@@ -3,23 +3,28 @@
 ## Table of Contents
 
 1. [Current State (Implemented)](#1-current-state-implemented)
-2. [Architecture Overview](#2-architecture-overview)
-3. [OCR Approach: CASCADE_AUTO](#3-ocr-approach-cascade_auto)
-4. [Bounding Box Support](#4-bounding-box-support)
-5. [File-Type Handling Strategy](#5-file-type-handling-strategy)
-6. [OCR Engine Details](#6-ocr-engine-details)
-7. [Data Models & Output Structure](#7-data-models--output-structure)
-8. [UML & Architecture Diagrams](#8-uml--architecture-diagrams)
-9. [Sequence Diagrams](#9-sequence-diagrams)
-10. [State Diagrams](#10-state-diagrams)
-11. [Chat Integration Flow](#11-chat-integration-flow)
-12. [API Design](#12-api-design)
-13. [Cost Estimation](#13-cost-estimation)
-14. [Python Libraries](#14-python-libraries)
-15. [Production-Grade Fixes](#15-production-grade-fixes)
-16. [Processing Limits](#16-processing-limits)
-17. [Risks & Considerations](#17-risks--considerations)
-18. [Sources](#18-sources)
+2. [All OCR Approaches (7 Total)](#2-all-ocr-approaches-7-total)
+3. [Architecture Overview](#3-architecture-overview)
+4. [OCR Approach: CASCADE_AUTO](#4-ocr-approach-cascade_auto)
+5. [NEW: GEMINI_COMPLETE](#5-new-gemini_complete)
+6. [NEW: LIBRARY_GEMINI](#6-new-library_gemini)
+7. [NEW: ULTIMATE_CASCADE](#7-new-ultimate_cascade)
+8. [NEW: OCR Feature Flags](#8-new-ocr-feature-flags)
+9. [Bounding Box Support](#9-bounding-box-support)
+10. [File-Type Handling Strategy](#10-file-type-handling-strategy)
+11. [OCR Engine Details](#11-ocr-engine-details)
+12. [Data Models & Output Structure](#12-data-models--output-structure)
+13. [UML & Architecture Diagrams](#13-uml--architecture-diagrams)
+14. [Sequence Diagrams](#14-sequence-diagrams)
+15. [State Diagrams](#15-state-diagrams)
+16. [Chat Integration Flow](#16-chat-integration-flow)
+17. [API Design](#17-api-design)
+18. [Cost Estimation](#18-cost-estimation)
+19. [Python Libraries](#19-python-libraries)
+20. [Production-Grade Fixes](#20-production-grade-fixes)
+21. [Processing Limits](#21-processing-limits)
+22. [Risks & Considerations](#22-risks--considerations)
+23. [Sources](#23-sources)
 
 ---
 
@@ -55,9 +60,83 @@
 | `pdf_handler.py` | `.pdf` | PyMuPDF + OCR | Yes |
 | `image_handler.py` | Images | OCR engines | Yes |
 
+### NEW Components (2026-02-06)
+
+| Component | Status | Location |
+|-----------|--------|----------|
+| **Gemini Multi-Model Engine** | Implemented | `app/services/file_processing/ocr/gemini_multi_model.py` |
+| **GEMINI_COMPLETE Processor** | Implemented | `app/services/file_processing/ocr/gemini_complete.py` |
+| **LIBRARY_GEMINI Processor** | Implemented | `app/services/file_processing/ocr/library_gemini.py` |
+| **ULTIMATE_CASCADE Processor** | Implemented | `app/services/file_processing/ocr/ultimate_cascade.py` |
+| **OCR Feature Flags** | Implemented | `app/services/file_processing/ocr/feature_flags.py` |
+| **OCR Config API** | Implemented | `app/api/v1/endpoints/ocr_config.py` |
+| **Feature Flags Config** | Implemented | `app/config/ocr_features.json` |
+
 ---
 
-## 2. Architecture Overview
+## 2. All OCR Approaches (7 Total)
+
+### Complete Approach Matrix
+
+```mermaid
+flowchart TB
+    subgraph Original["Original Approaches (4)"]
+        FL["FULLY_LOCAL<br/>Local OCR only"]
+        HY["HYBRID<br/>Local + Gemini fallback"]
+        MO["MULTI_OCR<br/>Multiple engines"]
+        CA["CASCADE_AUTO<br/>Auto-cascade"]
+    end
+
+    subgraph New["NEW Approaches (3)"]
+        GC["GEMINI_COMPLETE<br/>100% Gemini"]
+        LG["LIBRARY_GEMINI<br/>Libraries + Gemini"]
+        UC["ULTIMATE_CASCADE<br/>All methods"]
+    end
+
+    style FL fill:#2D5016,color:#fff
+    style HY fill:#B35900,color:#fff
+    style MO fill:#8B0000,color:#fff
+    style CA fill:#1E3A5F,color:#fff
+    style GC fill:#8B0000,color:#fff
+    style LG fill:#B35900,color:#fff
+    style UC fill:#4A0080,color:#fff
+```
+
+### Approach Comparison
+
+| Approach | Cost | Speed | Reliability | Best For |
+|----------|------|-------|-------------|----------|
+| **FULLY_LOCAL** | FREE | Fast | Good | Simple documents |
+| **HYBRID** | Low | Fast | Better | General use |
+| **MULTI_OCR** | Low | Medium | High | Complex docs |
+| **CASCADE_AUTO** | Low | Medium | High | Default choice |
+| **GEMINI_COMPLETE** | Medium | Medium | Highest | Graphs, charts |
+| **LIBRARY_GEMINI** | Very Low | Fast | High | Text-heavy docs |
+| **ULTIMATE_CASCADE** | Variable | Slow | Maximum | Mission-critical |
+
+### Approach Selection Guide
+
+```mermaid
+flowchart TD
+    A[Document Type?] --> B{Text-based?}
+
+    B -->|"Yes (.docx, .xlsx, .csv)"| C["LIBRARY_GEMINI<br/>(FREE extraction)"]
+
+    B -->|"No (Image/Scan)"| D{Quality Priority?}
+
+    D -->|"Cost Priority"| E["CASCADE_AUTO<br/>(Local first)"]
+    D -->|"Quality Priority"| F["GEMINI_COMPLETE<br/>(Best accuracy)"]
+    D -->|"Maximum Reliability"| G["ULTIMATE_CASCADE<br/>(All methods)"]
+
+    style C fill:#2D5016,color:#fff
+    style E fill:#1E3A5F,color:#fff
+    style F fill:#8B0000,color:#fff
+    style G fill:#4A0080,color:#fff
+```
+
+---
+
+## 3. Architecture Overview
 
 ### High-Level Flow
 
@@ -142,7 +221,7 @@ app/services/file_processing/
 │   ├── chart_extractor.py       # Chart/graph extraction
 │   ├── language_detector.py     # Language detection
 │   ├── post_processor.py        # Text post-processing
-│   └── production_utils.py      # NEW: NEW: Production utilities
+│   └── production_utils.py      # Production utilities (NEW)
 └── classifiers/
     ├── image_classifier.py      # Image type classification
     └── erp_classifier.py        # ERP document classification
@@ -150,7 +229,7 @@ app/services/file_processing/
 
 ---
 
-## 3. OCR Approach: CASCADE_AUTO
+## 4. OCR Approach: CASCADE_AUTO
 
 ### The Default Approach
 
@@ -205,14 +284,14 @@ class OCRConfig:
     # Retry settings for individual OCR engines
     MAX_RETRIES: int = 2                       # 3 total attempts per engine
     RETRY_DELAY_MS: int = 500                  # 500ms between retries
-    TIMEOUT_SECONDS: int = 120                 # NEW: 2 minutes timeout per operation (ENFORCED)
+    TIMEOUT_SECONDS: int = 120                 # 2 minutes timeout per operation (ENFORCED)
 
     # Verification
     VERIFY_LOW_CONFIDENCE: bool = True
     VERIFICATION_THRESHOLD: float = 0.75
 
     # Processing limits - NO ARTIFICIAL LIMITS
-    MAX_IMAGE_SIZE: int = 8192                 # NEW: 8K resolution support
+    MAX_IMAGE_SIZE: int = 8192                 # 8K resolution support
     MAX_FILE_SIZE_MB: int = 500                # 500MB max
     MAX_PDF_PAGES: int = 0                     # 0 = No limit, process ALL pages
 
@@ -222,7 +301,7 @@ class OCRConfig:
     CASCADE_RETRY_DELAY_MS: int = 1000         # 1 second between cascade retries
 
     # Rate limit settings for Gemini API
-    RATE_LIMIT_INITIAL_DELAY: float = 2.0      # NEW: 2 seconds initial (exponential backoff)
+    RATE_LIMIT_INITIAL_DELAY: float = 2.0      # 2 seconds initial (exponential backoff)
     RATE_LIMIT_MAX_DELAY: float = 60.0         # 1 minute max
     RATE_LIMIT_MULTIPLIER: float = 2.0         # Double each retry
     RATE_LIMIT_MAX_RETRIES: int = 5            # Up to 5 rate limit retries
@@ -256,7 +335,391 @@ Every extraction includes detailed cascade execution info:
 
 ---
 
-## 4. Bounding Box Support
+## 5. NEW: GEMINI_COMPLETE
+
+> **Full documentation:** [ocr_implementation_gemini_complete.md](./ocr_implementation_gemini_complete.md)
+
+### Overview
+
+**GEMINI_COMPLETE** uses 100% Gemini Vision API with a 4-model fallback chain. No local OCR is used.
+
+```mermaid
+flowchart LR
+    A[Image/PDF] --> B[Gemini Vision]
+    B --> C{Model Fallback}
+
+    C --> D["gemini-2.0-flash-exp"]
+    D -->|Fail| E["gemini-2.0-flash"]
+    E -->|Fail| F["gemini-1.5-pro"]
+    F -->|Fail| G["gemini-1.5-flash"]
+
+    D --> H[Result]
+    E --> H
+    F --> H
+    G --> H
+
+    style B fill:#8B0000,color:#fff
+```
+
+### Key Features
+
+| Feature | Value |
+|---------|-------|
+| Models | 4-model fallback chain |
+| Cost | ~$0.0001/page |
+| Best For | Graphs, charts, complex layouts |
+| PDF Handling | Converts pages to images |
+
+---
+
+## 6. NEW: LIBRARY_GEMINI
+
+> **Full documentation:** [ocr_implementation_library_gemini.md](./ocr_implementation_library_gemini.md)
+
+### Overview
+
+**LIBRARY_GEMINI** uses Python libraries for text-based files and only falls back to Gemini for images/scanned PDFs.
+
+```mermaid
+flowchart TD
+    A[File Input] --> B{File Type?}
+
+    B -->|".txt .md .csv"| C["Direct Read (FREE)"]
+    B -->|".docx"| D["python-docx (FREE)"]
+    B -->|".xlsx"| E["pandas (FREE)"]
+    B -->|".pdf"| F{Scanned?}
+    B -->|"Images"| G["Gemini (PAID)"]
+
+    F -->|"No (>50 chars/page)"| H["PyMuPDF (FREE)"]
+    F -->|"Yes (<50 chars/page)"| G
+
+    style C fill:#2D5016,color:#fff
+    style D fill:#2D5016,color:#fff
+    style E fill:#2D5016,color:#fff
+    style H fill:#2D5016,color:#fff
+    style G fill:#8B0000,color:#fff
+```
+
+### Scanned PDF Detection
+
+```python
+MIN_PDF_TEXT_PER_PAGE = 50  # characters
+
+# If average chars per page < 50, treat as scanned → use Gemini
+avg_chars_per_page = total_chars / page_count
+is_scanned = avg_chars_per_page < MIN_PDF_TEXT_PER_PAGE
+```
+
+### Detailed File Routing Flow
+
+```
+File Upload (LIBRARY_GEMINI)
+    │
+    ├─── Image file (.png, .jpg, .jpeg, .gif, .bmp, .tiff, .webp)
+    │       └─→ Gemini Vision directly ✓
+    │
+    ├─── PDF file
+    │       ├─→ Try PyMuPDF (extract native text)
+    │       │       ↓
+    │       ├─── If avg chars/page ≥ 50 → Use library result ✓
+    │       │
+    │       └─── If avg chars/page < 50 (scanned)
+    │               └─→ Gemini Vision (convert pages to images) ✓
+    │
+    ├─── DOCX → python-docx library ✓
+    ├─── XLSX/XLS → pandas library ✓
+    └─── TXT/MD/CSV → Direct read ✓
+```
+
+### How Scanned PDF Detection Works
+
+1. **Open PDF with PyMuPDF** and extract all text
+2. **Calculate:** `avg_chars_per_page = total_chars / page_count`
+3. **Decision:**
+   - If `avg_chars_per_page >= 50` → **Native PDF** → Use extracted text (FREE)
+   - If `avg_chars_per_page < 50` → **Scanned PDF** → Convert to images → Gemini Vision (PAID)
+
+### Why This Works
+
+| Document Type | Typical chars/page | Detection |
+|---------------|-------------------|-----------|
+| Text-heavy PDF | 2000+ | `avg > 50` → Library |
+| Scanned invoice | 0-10 | `avg < 50` → Gemini |
+| Mixed (some text) | 100-500 | `avg > 50` → Library |
+| Image-only PDF | 0 | `avg < 50` → Gemini |
+
+### Logging Format & Examples
+
+When LIBRARY_GEMINI processes files, detailed logs help trace the routing decisions:
+
+#### Image File Processing
+
+```log
+============================================================
+[LIBRARY_GEMINI] IMAGE FILE DETECTED - USING GEMINI VISION
+  File: invoice_scan.png
+  Extension: .png
+  Action: Calling Gemini Vision API directly
+============================================================
+
+[LIBRARY_GEMINI] _process_with_gemini() CALLED
+  File: invoice_scan.png
+  Image Type: document
+  Calling: gemini_multi_model.extract_from_image()
+
+[LIBRARY_GEMINI] Gemini extraction complete:
+  OCR Engines: ['gemini-2.0-flash-exp']
+  Method: gemini_vision
+  Model Used: gemini-2.0-flash-exp
+  Confidence: 94.50%
+  Text Length: 1245 chars
+  Cost: $0.000150
+```
+
+#### Scanned PDF Processing
+
+```log
+============================================================
+[LIBRARY_GEMINI] SCANNED PDF DETECTED - USING GEMINI VISION
+  File: old_invoice.pdf
+  Action: Converting pages to images, processing with Gemini
+============================================================
+
+[LIBRARY_GEMINI] Scanned PDF processing complete:
+  OCR Engines: ['gemini-2.0-flash-exp']
+  Method: gemini_vision
+  Model Used: gemini-2.0-flash-exp
+  Text Length: 2890 chars
+  Cost: $0.000450
+```
+
+#### Native PDF Processing (Library)
+
+```log
+============================================================
+[LIBRARY_GEMINI] PDF NATIVE TEXT EXTRACTION COMPLETE
+  File: report.pdf
+  Pages: 5
+  Total Characters: 15,420
+  Avg Chars/Page: 3084
+  File Size: 245,678 bytes
+  Processing Time: 85ms
+  Detection: NATIVE PDF (avg > 50 chars/page)
+  ─────────────────────────────────────────
+  COST ESTIMATION (if used as LLM context):
+  Estimated Tokens: 3,855
+  Model: gemini-2.0-flash
+  Estimated Context Cost: $0.000289
+  Extraction Cost: $0.00 (FREE - local library)
+============================================================
+```
+
+#### Text/CSV/DOCX/Excel Processing (Library)
+
+```log
+============================================================
+[LIBRARY_GEMINI] TEXT FILE EXTRACTION COMPLETE
+  File: readme.md
+  Encoding: utf-8
+  Lines: 245
+  Characters: 12,450
+  File Size: 12,450 bytes
+  Processing Time: 3ms
+  ─────────────────────────────────────────
+  COST ESTIMATION (if used as LLM context):
+  Estimated Tokens: 3,112
+  Model: gemini-2.0-flash
+  Estimated Context Cost: $0.000233
+  Extraction Cost: $0.00 (FREE - local library)
+============================================================
+
+============================================================
+[LIBRARY_GEMINI] EXCEL FILE EXTRACTION COMPLETE
+  File: sales_data.xlsx
+  Sheets: 3
+  Total Rows: 1,250
+  Characters: 45,890
+  File Size: 89,456 bytes
+  Processing Time: 125ms
+  ─────────────────────────────────────────
+  COST ESTIMATION (if used as LLM context):
+  Estimated Tokens: 11,472
+  Model: gemini-2.0-flash
+  Estimated Context Cost: $0.000860
+  Extraction Cost: $0.00 (FREE - local library)
+============================================================
+```
+
+#### Extraction Pipeline Logs
+
+```log
+============================================================
+[EXTRACTION_PIPELINE] Starting extract()
+  File: receipt.jpg
+  Current OCR approach: library_gemini
+  OCR Router ID: 140234567890
+  Expected for images: LIBRARY_GEMINI should use Gemini
+============================================================
+
+[EXTRACTION_PIPELINE] Image file with LIBRARY_GEMINI approach detected!
+  BYPASSING ocr_router - calling library_gemini directly for Gemini Vision.
+  File extension: .jpg
+
+[EXTRACTION_PIPELINE] Direct Gemini result:
+  OCR Engines: ['gemini-2.0-flash-exp']
+  Method: gemini_vision
+  Model: gemini-2.0-flash-exp
+  Cost: $0.000120
+```
+
+#### Fallback Trigger (Safety Net)
+
+```log
+[EXTRACTION_PIPELINE] FALLBACK TRIGGERED!
+  Image file with LIBRARY_GEMINI but Gemini was NOT used.
+  Engines used: ['paddle_ocr']
+  Reprocessing with Gemini directly...
+
+[EXTRACTION_PIPELINE] Fallback Gemini result:
+  OCR Engines: ['gemini-2.0-flash-exp']
+  Model: gemini-2.0-flash-exp
+  Cost: $0.000150
+```
+
+### Cost Estimation Model
+
+The system calculates two types of costs:
+
+1. **Extraction Cost** - Actual API cost for OCR (FREE for local libraries, PAID for Gemini)
+2. **Context Cost** - Estimated cost if the extracted text is used as LLM context
+
+#### Token Estimation
+
+```python
+# ~4 characters per token (standard approximation)
+estimated_tokens = len(text) // 4
+```
+
+#### Gemini Pricing (per 1M tokens)
+
+| Model | Input Cost | Output Cost |
+|-------|------------|-------------|
+| gemini-2.0-flash-exp | $0.075 | $0.30 |
+| gemini-2.0-flash | $0.075 | $0.30 |
+| gemini-1.5-pro | $1.25 | $5.00 |
+| gemini-1.5-flash | $0.075 | $0.30 |
+
+#### Cost Comparison Example
+
+| File Type | Size | Tokens | Extraction Cost | Context Cost |
+|-----------|------|--------|-----------------|--------------|
+| PDF (native) | 50KB | 10,000 | $0.00 (FREE) | $0.00075 |
+| DOCX | 25KB | 5,000 | $0.00 (FREE) | $0.000375 |
+| Excel | 100KB | 20,000 | $0.00 (FREE) | $0.0015 |
+| Image (scan) | 200KB | 2,000 | $0.00015 (Gemini) | $0.00015 |
+| Scanned PDF | 1MB | 8,000 | $0.0006 (Gemini) | $0.0006 |
+
+### Key Features
+
+| Feature | Value |
+|---------|-------|
+| Cost | ~80% FREE (libraries) |
+| Best For | Text-heavy documents |
+| Office Files | Perfect native extraction |
+
+---
+
+## 7. NEW: ULTIMATE_CASCADE
+
+> **Full documentation:** [ocr_implementation_ultimate_cascade.md](./ocr_implementation_ultimate_cascade.md)
+
+### Overview
+
+**ULTIMATE_CASCADE** is the most robust approach with a 3-layer cascade:
+
+```mermaid
+flowchart TD
+    A[File] --> B{Layer 1: GEMINI_COMPLETE}
+    B -->|"≥55% conf"| C[Return]
+    B -->|"<55%"| D{Layer 2: LIBRARY_GEMINI}
+
+    D -->|"≥55% conf"| C
+    D -->|"<55%"| E{Layer 3: CASCADE_AUTO}
+
+    E -->|"≥55% conf"| C
+    E -->|"All done"| F[Return Best Result]
+
+    style B fill:#8B0000,color:#fff
+    style D fill:#B35900,color:#fff
+    style E fill:#2D5016,color:#fff
+```
+
+### Cascade Layers
+
+| Layer | Approach | Retries | Timeout |
+|-------|----------|---------|---------|
+| 1 | GEMINI_COMPLETE | 2 | 300s |
+| 2 | LIBRARY_GEMINI | 2 | 300s |
+| 3 | CASCADE_AUTO | 2 | 300s |
+
+### Key Features
+
+| Feature | Value |
+|---------|-------|
+| Reliability | Maximum |
+| Cost | Variable |
+| Best For | Mission-critical documents |
+
+---
+
+## 8. NEW: OCR Feature Flags
+
+> **Full documentation:** [ocr_feature_flags.md](./ocr_feature_flags.md)
+
+### Overview
+
+Dynamic enable/disable of OCR approaches via JSON config with REST API.
+
+### Config File
+
+**Location:** `app/config/ocr_features.json`
+
+```json
+{
+  "ocr_approaches": {
+    "library_gemini": { "enabled": true, "priority": 1 },
+    "ultimate_cascade": { "enabled": false, "priority": 2 },
+    "gemini_complete": { "enabled": false, "priority": 3 },
+    "cascade_auto": { "enabled": false, "priority": 4 },
+    "multi_ocr": { "enabled": false, "priority": 5 },
+    "hybrid": { "enabled": false, "priority": 6 },
+    "fully_local": { "enabled": false, "priority": 7 }
+  },
+  "default_approach": "library_gemini",
+  "auto_select_enabled": true
+}
+```
+
+### API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/ocr/config` | Get full config |
+| POST | `/api/v1/ocr/toggle` | Enable/disable approach |
+| POST | `/api/v1/ocr/default` | Set default approach |
+
+### Frontend Integration
+
+```javascript
+// Fetch enabled approaches for dropdown
+const res = await fetch('/api/v1/ocr/config');
+const config = await res.json();
+const enabledApproaches = config.approaches.filter(a => a.enabled);
+```
+
+---
+
+## 9. Bounding Box Support
 
 ### Overview
 
@@ -452,7 +915,7 @@ For multi-page documents, bounding boxes are organized per-page:
 
 ---
 
-## 5. File-Type Handling Strategy
+## 10. File-Type Handling Strategy
 
 ### Processing Matrix
 
@@ -515,7 +978,7 @@ flowchart TD
 
 ---
 
-## 6. OCR Engine Details
+## 11. OCR Engine Details
 
 ### PaddleOCR (Primary for Tables)
 
@@ -526,13 +989,13 @@ flowchart TD
 - USE_GPU: False (CPU for compatibility)
 - ENABLE_MKLDNN: False (avoid OneDNN errors)
 - MAX_RETRIES: 2
-- NEW: **Thread-safe singleton with double-checked locking**
+- **Thread-safe singleton with double-checked locking**
 
 **Production Fixes Applied:**
-- ✅ Thread-safe singleton initialization with `threading.Lock()`
-- ✅ Image validation before processing
-- ✅ PIL Image cleanup after numpy conversion
-- ✅ `_loading` flag to prevent re-entrant loading
+- Thread-safe singleton initialization with `threading.Lock()`
+- Image validation before processing
+- PIL Image cleanup after numpy conversion
+- `_loading` flag to prevent re-entrant loading
 
 **Features:**
 - PP-Structure for layout analysis and table detection
@@ -557,10 +1020,10 @@ flowchart TD
 - Recognition Model: Recognizes text content
 
 **Production Fixes Applied:**
-- ✅ Thread-safe singleton initialization with `threading.Lock()`
-- ✅ Error state tracking (`_load_error`)
-- ✅ `is_available()` method to check engine status
-- ✅ `reset()` method to clear error state and retry
+- Thread-safe singleton initialization with `threading.Lock()`
+- Error state tracking (`_load_error`)
+- `is_available()` method to check engine status
+- `reset()` method to clear error state and retry
 
 **Features:**
 - State-of-the-art accuracy (v0.6.x)
@@ -583,10 +1046,10 @@ flowchart TD
 **Model:** `gemini-2.0-flash` (fast model for cost efficiency)
 
 **Production Fixes Applied:**
-- ✅ Thread-safe singleton initialization
-- ✅ Exponential backoff rate limiter with jitter
-- ✅ `_call_with_retry()` method for API calls
-- ✅ Configurable rate limit parameters
+- Thread-safe singleton initialization
+- Exponential backoff rate limiter with jitter
+- `_call_with_retry()` method for API calls
+- Configurable rate limit parameters
 
 **Features:**
 - Visual understanding (interprets graphs/charts)
@@ -653,7 +1116,7 @@ flowchart TD
 
 ---
 
-## 7. Data Models & Output Structure
+## 12. Data Models & Output Structure
 
 ### Core Models (models.py)
 
@@ -755,7 +1218,7 @@ class FormattedExtraction:
 
 ---
 
-## 8. UML & Architecture Diagrams
+## 13. UML & Architecture Diagrams
 
 ### Class Diagram - Core Models
 
@@ -1168,7 +1631,7 @@ flowchart LR
 
 ---
 
-## 9. Sequence Diagrams
+## 14. Sequence Diagrams
 
 ### File Upload Sequence
 
@@ -1366,7 +1829,7 @@ sequenceDiagram
 
 ---
 
-## 10. State Diagrams
+## 15. State Diagrams
 
 ### OCR Router State Machine
 
@@ -1496,7 +1959,7 @@ stateDiagram-v2
 
 ---
 
-## 11. Chat Integration Flow
+## 16. Chat Integration Flow
 
 ### Complete Chat with Files Flow
 
@@ -1668,7 +2131,7 @@ sequenceDiagram
 
 ---
 
-## 12. API Design
+## 17. API Design
 
 ### Upload Endpoint
 
@@ -1680,58 +2143,256 @@ Request:
   - file: binary (required)
   - session_id: string (optional)
   - document_type_hint: string (optional) - invoice, receipt, etc.
+```
 
-Response (200):
+### Response Structure (Full Example)
+
+```json
 {
-  "file_id": "uuid",
-  "filename": "invoice.pdf",
+  "file_id": "5ff7f145-e409-4593-b6fb-9c0a8b0c2bb2",
+  "filename": "sample_bill.png",
   "extraction": {
-    "text": "Invoice #1234...",
-    "formatted_markdown": "## Invoice #1234\n\n| Item | Qty | Price |...",
-    "structured_json": {
-      "document_type": "invoice",
-      "invoice_number": "1234",
-      "date": "2026-01-15",
-      "items": [...],
-      "total": 15000.00
-    },
-    "document_layout": {
-      "width": 1200,
-      "height": 1600,
-      "total_elements": 45,
-      "elements": [
-        {
-          "text": "Invoice #1234",
-          "bbox": {...},
-          "element_type": "reference",
-          "confidence": 0.98
-        }
-      ]
+    "text": "PURCHASE ORDER\nBuyer (Bill To):\nPONo:SVT/PO/2026/0157\n...",
+    "structured_data": {
+      "document_layout": {
+        "width": 886,
+        "height": 1329,
+        "total_elements": 71,
+        "total_characters": 1336,
+        "total_words": 180,
+        "total_lines": 71,
+        "average_confidence": 0.9685,
+        "languages_detected": ["en"],
+        "elements": [
+          {
+            "text": "PURCHASE ORDER",
+            "bbox": {
+              "points": [[314, 48], [550, 50], [549, 75], [314, 73]],
+              "rect": {"x": 314, "y": 48, "width": 236, "height": 25},
+              "center": [431.75, 61.5]
+            },
+            "confidence": 0.9775,
+            "element_type": "title",
+            "order": 0,
+            "line_number": 1,
+            "is_numeric": false,
+            "is_currency": false,
+            "language": "en"
+          },
+          {
+            "text": "PONo:SVT/PO/2026/0157",
+            "bbox": {
+              "points": [[547, 108], [770, 108], [770, 127], [547, 127]],
+              "rect": {"x": 547, "y": 108, "width": 223, "height": 19},
+              "center": [658.5, 117.5]
+            },
+            "confidence": 0.9665,
+            "element_type": "reference",
+            "order": 2,
+            "line_number": 3,
+            "is_numeric": false,
+            "is_currency": false,
+            "language": "en"
+          },
+          {
+            "text": "570,000.00",
+            "bbox": {
+              "points": [[740, 709], [833, 706], [834, 729], [741, 733]],
+              "rect": {"x": 740, "y": 706, "width": 93, "height": 24},
+              "center": [787, 719.25]
+            },
+            "confidence": 0.999,
+            "element_type": "amount",
+            "order": 37,
+            "line_number": 41,
+            "is_numeric": true,
+            "is_currency": false,
+            "language": "en"
+          }
+        ]
+      },
+      "cascade_execution": {
+        "total_attempts": 1,
+        "final_approach": "FULLY_LOCAL",
+        "final_confidence": 0.9685,
+        "total_time_ms": 2340,
+        "success": true,
+        "attempts": [
+          {
+            "approach": "FULLY_LOCAL",
+            "attempt": 1,
+            "success": true,
+            "confidence": 0.9685,
+            "time_ms": 2340,
+            "engine": "paddle_ocr",
+            "reason": "Accepted: confidence 0.9685 >= threshold 0.55"
+          }
+        ]
+      }
     },
     "tables": [
       {
-        "headers": ["Item", "Qty", "Price"],
-        "rows": [["Widget", "10", "₹1,500"]],
-        "confidence": 0.95
+        "headers": ["S.No", "Description", "HSN Code", "Qty (Kgs)", "Rate/Kg", "Amount"],
+        "rows": [
+          ["1", "Combed Cotton Yarn 40s", "5205", "2,000", "285.00", "570,000.00"],
+          ["2", "Polyester Yarn 30s", "5402", "1,500", "165.00", "247,500.00"]
+        ],
+        "confidence": 0.95,
+        "bbox": {
+          "points": [[36, 676], [836, 676], [836, 770], [36, 770]],
+          "rect": {"x": 36, "y": 676, "width": 800, "height": 94}
+        }
       }
     ],
     "metadata": {
-      "file_type": ".pdf",
-      "pages": 3,
+      "file_type": ".png",
+      "file_size": 245000,
+      "pages": 1,
       "extraction_method": "paddle_ocr",
-      "confidence": 0.95,
+      "confidence": 0.9685,
       "processing_time_ms": 2340,
+      "tokens_used": 0,
+      "image_type": "invoice",
       "ocr_engines_used": ["paddle_ocr"],
+      "languages_requested": ["en"],
       "languages_detected": ["en"]
     },
-    "cascade_info": {
-      "final_approach": "FULLY_LOCAL",
-      "total_attempts": 1,
-      "success": true
-    }
+    "formatted_markdown": "## PURCHASE ORDER\n\n**PO No:** SVT/PO/2026/0157\n**PO Date:** 05-Feb-2026\n\n### Buyer (Bill To)\nSri Venkateswara Textiles Pvt. Ltd.\nPlot No. 24, Industrial Area, Balanagar\nHyderabad-500037, Telangana, India\nGSTIN: 36AAECS4592M124\n\n### Line Items\n\n| S.No | Description | HSN Code | Qty (Kgs) | Rate/Kg | Amount |\n|------|-------------|----------|-----------|---------|--------|\n| 1 | Combed Cotton Yarn 40s | 5205 | 2,000 | 285.00 | 570,000.00 |\n| 2 | Polyester Yarn 30s | 5402 | 1,500 | 165.00 | 247,500.00 |\n\n### Totals\n- Sub Total: 817,500.00\n- CGST @2.5%: 20,437.50\n- SGST @2.5%: 20,437.50\n- **Grand Total: 858,375.00**",
+    "structured_json": {
+      "document_type": "purchase_order",
+      "document_subtype": "textile_po",
+      "reference_numbers": {
+        "po_number": "SVT/PO/2026/0157",
+        "po_date": "05-Feb-2026"
+      },
+      "buyer": {
+        "name": "Sri Venkateswara Textiles Pvt. Ltd.",
+        "address": "Plot No. 24, Industrial Area, Balanagar, Hyderabad-500037, Telangana, India",
+        "gstin": "36AAECS4592M124",
+        "phone": "+914023874512",
+        "email": "purchase@svtextiles.com"
+      },
+      "supplier": {
+        "name": "Ravi Yarn Traders",
+        "address": "No. 112, Cotton Market Road, Guntur-522002, Andhra Pradesh",
+        "gstin": "37AACFR1123Q1Z9",
+        "phone": "+91 863 2234567",
+        "email": "sales@raviyarn.com"
+      },
+      "line_items": [
+        {
+          "sno": 1,
+          "description": "Combed Cotton Yarn 40s",
+          "hsn_code": "5205",
+          "quantity": 2000,
+          "unit": "Kgs",
+          "rate": 285.00,
+          "amount": 570000.00
+        },
+        {
+          "sno": 2,
+          "description": "Polyester Yarn 30s",
+          "hsn_code": "5402",
+          "quantity": 1500,
+          "unit": "Kgs",
+          "rate": 165.00,
+          "amount": 247500.00
+        }
+      ],
+      "totals": {
+        "sub_total": 817500.00,
+        "cgst_rate": 2.5,
+        "cgst_amount": 20437.50,
+        "sgst_rate": 2.5,
+        "sgst_amount": 20437.50,
+        "grand_total": 858375.00
+      },
+      "terms": {
+        "payment_terms": "30 Days Credit",
+        "transport_mode": "Road",
+        "freight": "To Pay",
+        "expected_delivery": "12-Feb-2026"
+      }
+    },
+    "document_type": "purchase_order",
+    "document_subtype": "textile_po"
   }
 }
 ```
+
+### Response Fields Explained
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `file_id` | UUID | Unique identifier for the uploaded file |
+| `filename` | string | Original filename |
+| `extraction.text` | string | Raw extracted text (all text concatenated) |
+| `extraction.structured_data.document_layout` | object | Full layout with bounding boxes |
+| `extraction.structured_data.cascade_execution` | object | CASCADE_AUTO execution details |
+| `extraction.tables` | array | Extracted tables with headers, rows, and bboxes |
+| `extraction.metadata` | object | Processing metadata (time, engines, confidence) |
+| `extraction.formatted_markdown` | string | Human-readable formatted markdown |
+| `extraction.structured_json` | object | Document-type-specific structured data |
+| `extraction.document_type` | string | Detected document type |
+| `extraction.document_subtype` | string | Specific document subtype |
+
+### Cascade Execution Object
+
+```json
+{
+  "cascade_execution": {
+    "total_attempts": 3,
+    "final_approach": "HYBRID",
+    "final_confidence": 0.87,
+    "total_time_ms": 4560,
+    "success": true,
+    "attempts": [
+      {
+        "approach": "FULLY_LOCAL",
+        "attempt": 1,
+        "success": false,
+        "confidence": 0.42,
+        "time_ms": 1200,
+        "engine": "paddle_ocr",
+        "reason": "Rejected: confidence 0.42 < threshold 0.55"
+      },
+      {
+        "approach": "FULLY_LOCAL",
+        "attempt": 2,
+        "success": false,
+        "confidence": 0.48,
+        "time_ms": 1100,
+        "engine": "surya_ocr",
+        "reason": "Rejected: confidence 0.48 < threshold 0.55"
+      },
+      {
+        "approach": "HYBRID",
+        "attempt": 1,
+        "success": true,
+        "confidence": 0.87,
+        "time_ms": 2260,
+        "engine": "gemini_vision",
+        "reason": "Accepted: confidence 0.87 >= threshold 0.55"
+      }
+    ]
+  }
+}
+```
+
+### Element Types in Document Layout
+
+| Element Type | Description | Example |
+|--------------|-------------|---------|
+| `title` | Document title/heading | "PURCHASE ORDER", "INVOICE" |
+| `reference` | Reference numbers, IDs | "PO No: SVT/PO/2026/0157" |
+| `text` | General text content | Company names, addresses |
+| `key_value` | Key: Value pairs | "Phone: +91..." |
+| `amount` | Monetary amounts | "570,000.00" |
+| `number` | Numeric values | "2,000", "5205" |
+| `date` | Date fields | "05-Feb-2026" |
+| `table` | Table region | Line items table |
+| `header` | Page header | Document header |
+| `footer` | Page footer | Document footer |
 
 ### Extended Chat Endpoint
 
@@ -1746,7 +2407,7 @@ POST /api/v1/chat
 
 ---
 
-## 13. Cost Estimation
+## 18. Cost Estimation
 
 ### With CASCADE_AUTO (90%+ Free)
 
@@ -1775,9 +2436,89 @@ pie title Cost Distribution (500 uploads/day)
 | Graphs/Charts | Gemini Vision | ~$0.0001/image |
 | Low confidence fallback | Gemini | ~$0.0001/page |
 
+### Gemini Models Used
+
+#### 1. Primary Model (Single Model - `library_gemini`)
+
+| Model | File | Line | Purpose |
+|-------|------|------|---------|
+| `gemini-2.0-flash` | `app/services/file_processing/ocr/gemini_vision.py` | 125 | Default for `library_gemini` approach |
+
+#### 2. Multi-Model Fallback Chain (`gemini_complete`, `ultimate_cascade`)
+
+**File:** `app/services/file_processing/ocr/gemini_multi_model.py`
+
+| Priority | Model ID | Timeout | Input Cost | Output Cost | Best For |
+|----------|----------|---------|------------|-------------|----------|
+| 1 | `gemini-2.0-flash-exp` | 60s | ~$0.10/1M tokens | ~$0.40/1M tokens | Complex docs, experimental |
+| 2 | `gemini-2.0-flash` | 45s | **$0.10/1M tokens** | **$0.40/1M tokens** | Stable default |
+| 3 | `gemini-1.5-pro` | 90s | $1.25/1M tokens | $5.00/1M tokens | More capable, slower |
+| 4 | `gemini-1.5-flash` | 30s | $0.075/1M tokens | $0.30/1M tokens | Fast fallback |
+
+#### 3. Chat/LLM Model (Non-OCR)
+
+| Model | File | Line | Purpose |
+|-------|------|------|---------|
+| `gemini-3-flash-preview` | `app/config.py` | 69 | Chat conversations |
+
+#### Model Usage by Approach
+
+| Approach | Model Used | Fallback Chain |
+|----------|------------|----------------|
+| `library_gemini` | `gemini-2.0-flash` | Single model (no fallback) |
+| `gemini_complete` | Multi-model | `2.0-flash-exp` → `2.0-flash` → `1.5-pro` → `1.5-flash` |
+| `ultimate_cascade` | Multi-model | Same as `gemini_complete` |
+| `hybrid` | `gemini-2.0-flash` | Single model (fallback only) |
+| `cascade_auto` | `gemini-2.0-flash` | Single model (verification only) |
+
+#### Multi-Model Fallback Flow
+
+```mermaid
+flowchart LR
+    A[Image/PDF] --> B{Try Model}
+
+    B --> C["gemini-2.0-flash-exp<br/>(60s timeout)"]
+    C -->|Fail/Timeout| D["gemini-2.0-flash<br/>(45s timeout)"]
+    D -->|Fail/Timeout| E["gemini-1.5-pro<br/>(90s timeout)"]
+    E -->|Fail/Timeout| F["gemini-1.5-flash<br/>(30s timeout)"]
+
+    C -->|Success| G[Return Result]
+    D -->|Success| G
+    E -->|Success| G
+    F -->|Success| G
+    F -->|Fail| H[Error]
+
+    style C fill:#2D5016,color:#fff
+    style D fill:#1E3A5F,color:#fff
+    style E fill:#B35900,color:#fff
+    style F fill:#8B0000,color:#fff
+```
+
+#### Current Default Note
+
+> **Currently with `library_gemini` approach, you're using `gemini-2.0-flash` (single model, no fallback chain).**
+
+### Cost Per Document Estimates
+
+| Approach | Model Used | Cost/Page | Cost/100 Pages | Monthly (500 docs) |
+|----------|------------|-----------|----------------|---------------------|
+| `library_gemini` | gemini-2.0-flash | ~$0.0001 | ~$0.01 | ~$1.50 |
+| `gemini_complete` | Multi-model chain | ~$0.0001-0.001 | ~$0.01-0.10 | ~$1.50-15.00 |
+| `cascade_auto` | Local + Gemini fallback | ~$0.00001 | ~$0.001 | ~$0.15 |
+| `fully_local` | PaddleOCR/Surya | **FREE** | **FREE** | **$0.00** |
+
+### Token Usage Reference
+
+| Document Type | Avg Tokens/Page | Cost/Page (2.0-flash) |
+|---------------|-----------------|------------------------|
+| Simple text invoice | ~500 tokens | ~$0.00005 |
+| Complex table document | ~1,500 tokens | ~$0.00015 |
+| Dense multi-column | ~3,000 tokens | ~$0.0003 |
+| Full page scan | ~5,000 tokens | ~$0.0005 |
+
 ---
 
-## 14. Python Libraries
+## 19. Python Libraries
 
 ### Required Dependencies
 
@@ -1832,7 +2573,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ---
 
-## 15. Production-Grade Fixes
+## 20. Production-Grade Fixes
 
 ### New File: `production_utils.py`
 
@@ -2006,7 +2747,7 @@ class GeminiVision:
 
 ---
 
-## 16. Processing Limits
+## 21. Processing Limits
 
 ### Updated Limits (No Restrictions)
 
@@ -2055,7 +2796,7 @@ With cascade retries = up to ~15 minutes worst case
 
 ---
 
-## 17. Risks & Considerations
+## 22. Risks & Considerations
 
 ### Technical Risks
 
@@ -2082,7 +2823,7 @@ With cascade retries = up to ~15 minutes worst case
 
 ---
 
-## 18. Sources
+## 23. Sources
 
 ### OCR Libraries
 - [Surya OCR — GitHub](https://github.com/VikParuchuri/surya)
@@ -2221,3 +2962,72 @@ await asyncio.sleep(limiter.get_delay())
 - PDF file handle cleanup
 - Re-entrant model loading prevention
 - Gemini rate limit handling (was fixed 5s, now exponential)
+
+---
+
+### 2026-02-06 — New OCR Approaches & Feature Flags
+
+**New OCR Approaches (3):**
+- **GEMINI_COMPLETE** (`gemini_complete.py`)
+  - 100% Gemini Vision with 4-model fallback chain
+  - Models: gemini-2.0-flash-exp → gemini-2.0-flash → gemini-1.5-pro → gemini-1.5-flash
+  - Best for graphs, charts, complex layouts
+
+- **LIBRARY_GEMINI** (`library_gemini.py`)
+  - Python libraries for text files (FREE)
+  - Gemini fallback for images and scanned PDFs only
+  - Scanned PDF detection: <50 chars/page = scanned
+
+- **ULTIMATE_CASCADE** (`ultimate_cascade.py`)
+  - 3-layer cascade: GEMINI_COMPLETE → LIBRARY_GEMINI → CASCADE_AUTO
+  - Maximum reliability for mission-critical documents
+  - 2 retries per layer, 300s timeout per layer
+
+**New Infrastructure:**
+- **Gemini Multi-Model Engine** (`gemini_multi_model.py`)
+  - 4-model fallback chain with exponential backoff
+  - Thread-safe singleton with rate limiting
+  - Unified extraction interface
+
+- **OCR Feature Flags** (`feature_flags.py`)
+  - Dynamic enable/disable of OCR approaches
+  - JSON config file with hot-reload
+  - Priority-based auto-selection
+
+- **OCR Config API** (`api/v1/endpoints/ocr_config.py`)
+  - REST API for frontend integration
+  - GET/POST endpoints for config management
+
+**New Files:**
+```
+app/services/file_processing/ocr/
+├── gemini_multi_model.py      # Multi-model Gemini engine
+├── gemini_complete.py         # GEMINI_COMPLETE approach
+├── library_gemini.py          # LIBRARY_GEMINI approach
+├── ultimate_cascade.py        # ULTIMATE_CASCADE approach
+└── feature_flags.py           # Feature flags manager
+
+app/config/
+└── ocr_features.json          # Feature flags config
+
+app/api/v1/endpoints/
+└── ocr_config.py              # OCR config API
+```
+
+**Documentation Files:**
+```
+execution_plan/ocr/
+├── ocr_implementation_gemini_complete.md
+├── ocr_implementation_library_gemini.md
+├── ocr_implementation_ultimate_cascade.md
+└── ocr_feature_flags.md
+```
+
+**Total OCR Approaches:** 7
+1. FULLY_LOCAL (original)
+2. HYBRID (original)
+3. MULTI_OCR (original)
+4. CASCADE_AUTO (original)
+5. GEMINI_COMPLETE (NEW)
+6. LIBRARY_GEMINI (NEW)
+7. ULTIMATE_CASCADE (NEW)
